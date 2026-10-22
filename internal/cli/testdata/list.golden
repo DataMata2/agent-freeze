@@ -1,0 +1,6 @@
+ID   NAME                                      STATE    STATUS  RAM   SWAP  PROCS  CWD
+102  Acme web frontend builder                 running  busy    400M  0B    3      ~/code/acme
+201  claude back                               frozen   idle    30M   250M  1      /srv/back
+200  claude daemon [daemon]                    running  -       50M   0B    2      ~
+300  me (you)                                  running  shell   120M  0B    4      ~/Projects/afz
+410  a very long session name that goes past…  partial  idle    1M    2.0G  1      /tmp/x

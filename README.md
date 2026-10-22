@@ -1,0 +1,207 @@
+# agent-freeze
+
+Like a Fallout vault for your coding agents: `afz` puts idle Claude Code,
+Codex and friends into cryo so a game can have the RAM, then wakes them up
+exactly where they left off.
+
+`afz` lists every coding-agent process group on the machine, freezes the ones
+you pick with the cgroup v2 freezer, pushes their memory out to swap, and
+thaws them later. No root needed. A thawed agent continues from the exact
+point it stopped, even mid-turn.
+
+Recognised agents: `claude`, `codex`, `gemini`, `opencode`, `aider`,
+`cursor-agent`, `amp`, also when run by `node`, `bun`, `deno` or `python`
+(by script name or a `node_modules/<agent>` path).
+
+## Install
+
+```sh
+go install github.com/DataMata2/agent-freeze/cmd/afz@latest
+```
+
+Builds without a version stamp, including `go install`, report `afz dev`. For
+a versioned build:
+
+```sh
+go build -ldflags "-X github.com/DataMata2/agent-freeze/internal/cli.Version=v0.1.0" -o afz ./cmd/afz
+```
+
+## Requirements
+
+- Linux with the cgroup v2 unified hierarchy at `/sys/fs/cgroup`
+  (`afz` exits with `afz: cgroup v2 not available` otherwise).
+- A systemd user session: agents must run inside your delegated
+  `user@<uid>.service` subtree (the normal case for terminals started from a
+  desktop session), with the `memory` controller available.
+- Swap. Freezing works without it, but then no RAM is freed.
+- Kernel 5.19 or newer for `memory.reclaim`.
+
+## Usage
+
+### TUI
+
+Run `afz` with no arguments in a terminal:
+
+```sh
+afz
+```
+
+The header shows available RAM, free swap, the frozen count and total freed
+memory. Each row is one agent group with its state (running, frozen, partial),
+status (busy, idle, shell), RAM, swap and process count. Your own group is
+marked `(you)`.
+
+| Key | Action |
+| --- | --- |
+| `↑`/`↓`, `k`/`j` | move |
+| `space` | toggle selection |
+| `a` | select all (except yourself and daemons) |
+| `f` | freeze the selected rows, or the current row |
+| `u` | thaw the selected rows, or the current row |
+| `F` | freeze all (except yourself and daemons) |
+| `U` | thaw all |
+| `r` | refresh |
+| `q` | quit |
+
+When stdout is not a terminal (a pipe, or an AI agent calling it), bare `afz`
+prints `afz list` instead of opening the TUI.
+
+### CLI
+
+```sh
+afz list                         # ID NAME STATE STATUS RAM SWAP PROCS CWD
+afz list --all-procs             # also print each group's PIDs
+afz freeze --all                 # freeze every agent except you and daemons
+afz freeze 540032 my-project     # freeze by ID, key or name substring
+afz thaw --all                   # thaw everything frozen
+afz status                       # frozen totals, available RAM, free swap
+afz version
+afz help
+```
+
+A selector is a group ID (the root PID), a group key, or a case-insensitive
+substring of the name. An exact ID or key wins; a substring matching several
+groups is an error that lists the candidates.
+
+Flags:
+
+| Flag | Commands | Meaning |
+| --- | --- | --- |
+| `--json` | all but `help` | one JSON object on stdout |
+| `--all` | `freeze`, `thaw` | every eligible group instead of selectors |
+| `--include-daemons` | `freeze` | let `--all` include agent daemons |
+| `--yes` | `freeze` | proceed even if free swap is smaller than the targets' RAM |
+| `--force-self` | `freeze` | allow freezing the group `afz` runs in |
+| `--all-procs` | `list` | print each group's PIDs |
+
+Exit codes: `0` success, `1` at least one target failed (or the operation
+failed), `2` usage error, unknown or ambiguous selector.
+
+AI agents calling `afz` should read [AGENTS.md](AGENTS.md).
+
+## How it works
+
+An agent group is the agent's root process plus all its descendants (tool
+shells, MCP servers, and so on). Names come from Claude Code's session files
+(`~/.claude/sessions`), from `-n`/`--name`, or from the session ID, falling
+back to `<agent> @ <basename of cwd>`. Daemons are named like `claude daemon`
+or `claude bg-spare`.
+
+**Freeze.**
+
+1. `afz` creates a cgroup for the group under
+   `user@<uid>.service/app.slice/agent-freeze/<key>` and moves every process of
+   the group into it, re-scanning for processes spawned during the move. Only
+   the agent tree moves: the terminal emulator and your shell stay in their
+   own scope, so the window stays responsive. This is allowed without root
+   because the whole subtree belongs to you.
+2. It writes `1` to the new cgroup's `cgroup.freeze` and waits for
+   `cgroup.events` to report `frozen 1`. Unlike SIGSTOP, the freezer is
+   invisible to the frozen processes and does not trigger the parent shell's
+   job control.
+3. It reclaims the memory with `memory.reclaim` (`swappiness=200`, so the
+   kernel evicts anonymous memory to swap; on kernels that reject that key it
+   falls back to plain reclaim). In cgroup v2 a process's pages
+   stay charged to the cgroup it was in when they were touched, not the one
+   it moves to. So reclaim targets the **origin** cgroups recorded before the
+   move (usually the terminal's scope), asking each for the RSS its former
+   members still hold, and also the new cgroup for pages touched after the
+   move. A single `memory.reclaim` write takes pages from the whole scope, so
+   one pass may free only part of the agent's memory. `afz` therefore repeats
+   it, up to 4 rounds, until less than 5% of the RSS is left or a round frees
+   under 16 MiB. The frozen pages are never touched again, so each round ages
+   them further while the terminal's own pages stay hot.
+
+The origin cgroup of every PID is recorded in
+`$XDG_STATE_HOME/agent-freeze/state.json` (default
+`~/.local/state/agent-freeze/state.json`). Whether a group is frozen is always
+read from the cgroup tree, never from that file.
+
+**Thaw.** `afz` writes `0` to `cgroup.freeze`, moves every process back to the
+cgroup it came from, and removes the empty agent-freeze cgroup. If a process's
+origin cgroup is gone, it goes to the root process's origin; failing that, it
+stays where it is with a warning, and the state entry is kept so a later thaw
+can retry. Moving back
+matters: pages swapped back in are charged to the origin again, so the next
+freeze must start from there to reclaim them.
+
+**Banner.** A frozen agent looks hung, so after a successful freeze `afz`
+writes a reverse-video line to the bottom row of the agent's terminal,
+`❄ frozen by afz at 15:04 — keystrokes are queued until thaw · don't close
+this window`, and sets the window title to `❄ FROZEN — <name>`, first saving
+the current title on the terminal's title stack. The terminal
+is the one on the agent's stdin, stdout or stderr (for a Claude background
+session, its claude process's); an agent without a terminal gets no banner.
+After a successful thaw `afz` clears that line, sets the title to the group's
+name, then restores the saved title (terminals without a title stack keep the
+name), and sends the agent `SIGWINCH` so it redraws its whole screen. Writes
+never block: if the terminal is not accepting output, the banner is skipped.
+A banner problem only adds a `banner: ...` warning; the freeze or thaw still
+succeeds. Set `AFZ_NO_BANNER=1` to turn the banner (and the `SIGWINCH`) off.
+
+## What happens if I type into a frozen session
+
+- **Keys are queued.** The terminal keeps accepting input, but the frozen
+  agent does not read it, so nothing is echoed. Everything you type is
+  delivered when you thaw (up to the terminal's input buffer, a few KiB).
+- **Ctrl+C is queued too.** It does not interrupt or unfreeze the agent; it
+  takes effect after thaw, as if you had pressed it then.
+- **Don't close the window.** Closing it hangs up the terminal. The frozen
+  agent cannot react yet, but the hang-up is delivered on thaw and ends the
+  session. If that happens, `claude --resume` in the same directory recovers
+  the conversation history.
+
+## Safety
+
+- **Self-exclusion.** `afz` never freezes the agent that runs it: the group
+  containing any of `afz`'s ancestor processes is marked `(you)` / `"self": true`,
+  is skipped by `--all`, and refuses to freeze by name unless `--force-self` is
+  given. An agent should only pass `--force-self` when you explicitly ask it to.
+- **Daemons.** Background helpers (`claude daemon`, `claude bg-spare`,
+  `codex app-server`, ...) are marked `[daemon]` and excluded from
+  `freeze --all` unless `--include-daemons` is given, because one daemon may
+  host several sessions.
+- **Swap check.** If the targets' RAM exceeds free swap, `afz freeze` refuses
+  unless `--yes` is given.
+- **Delegation.** Processes outside your `user@<uid>.service` subtree cannot be
+  moved without root; such groups fail with
+  `not in user-delegated cgroup`.
+
+## Caveats
+
+- **No reboot survival.** Frozen agents live in RAM and swap only. A reboot
+  ends them like any other process, and `afz` drops their stale state.
+- **Busy agents.** Freezing an agent that is mid-turn is allowed but warned
+  about: the CLI adds a `was busy` warning to the result, and the TUI asks for
+  confirmation first. An API request in flight while frozen may time out and
+  be retried by the agent after thaw.
+- **zram vs disk swap.** zram keeps the "swapped" pages compressed in RAM, so
+  it frees only part of the memory. A swap file or partition on disk frees
+  the most.
+- **Terminal paging.** Reclaim from the origin scope works on the whole
+  terminal scope, so it can page out a little of the terminal emulator too.
+  It pages back in as soon as you use that window.
+
+## License
+
+MIT, see [LICENSE](LICENSE).
