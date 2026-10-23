@@ -26,7 +26,7 @@ usage: %[1]s <command> [flags] [selector...]
 
 commands:
   list      show agent groups (ID NAME STATE STATUS RAM SWAP PROCS CWD)
-  freeze    freeze the selected groups and push their memory to swap
+  freeze    freeze the selected groups and free their RAM
   thaw      thaw the selected groups
   status    show frozen totals and system memory
   rename    rename this command, e.g. '%[1]s rename chill'

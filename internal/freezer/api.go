@@ -1,5 +1,5 @@
-// Package freezer orchestrates discover, cgroup and state to freeze and thaw
-// agent groups. This file holds the types front ends depend on.
+// Package freezer freezes and thaws agent groups, with cgroups on Linux and
+// signals on macOS. This file holds the types front ends depend on.
 package freezer
 
 import (

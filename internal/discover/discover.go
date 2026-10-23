@@ -1,4 +1,4 @@
-// Package discover groups a /proc snapshot into coding-agent process groups.
+// Package discover groups a process snapshot into coding-agent process groups.
 package discover
 
 import (

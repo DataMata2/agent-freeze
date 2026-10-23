@@ -4,14 +4,22 @@ Like a Fallout vault for your coding agents: `afz` puts idle Claude Code,
 Codex and friends into cryo so a game can have the RAM, then wakes them up
 exactly where they left off.
 
+Too many Claude Code sessions open and your laptop starts to lag? Every
+session keeps its process, tool shells and MCP servers in memory, even while
+it sits idle. `afz` pauses the sessions you are not using and gives their RAM
+back to everything else, on Linux and macOS. On a 16 GB MacBook running eight
+Claude Code sessions, freezing the three idle ones gave back about 490 MB
+within a few minutes.
+
 `afz` lists every coding-agent process group on the machine, freezes the ones
 you pick (with the cgroup v2 freezer on Linux, with signals on macOS), gets
 their memory out of RAM, and thaws them later. No root needed. A thawed agent
 continues from the exact point it stopped, even mid-turn.
 
-Recognised agents: `claude`, `codex`, `gemini`, `opencode`, `aider`,
-`cursor-agent`, `amp`, also when run by `node`, `bun`, `deno` or `python`
-(by script name or a `node_modules/<agent>` path).
+Recognised agents: Claude Code (`claude`), OpenAI Codex CLI (`codex`), Gemini
+CLI (`gemini`), `opencode`, Aider (`aider`), Cursor CLI (`cursor-agent`) and
+Amp (`amp`), also when run by `node`, `bun`, `deno` or `python` (by script
+name or a `node_modules/<agent>` path).
 
 ## Install
 
@@ -129,6 +137,8 @@ shells, MCP servers, and so on). Names come from Claude Code's session files
 (`~/.claude/sessions`), from `-n`/`--name`, or from the session ID, falling
 back to `<agent> @ <basename of cwd>`. Daemons are named like `claude daemon`
 or `claude bg-spare`.
+
+### On Linux
 
 **Freeze.**
 
@@ -251,12 +261,12 @@ because macOS creates swap files as it needs them.
   about: the CLI adds a `was busy` warning to the result, and the TUI asks for
   confirmation first. An API request in flight while frozen may time out and
   be retried by the agent after thaw.
-- **zram vs disk swap.** zram keeps the "swapped" pages compressed in RAM, so
-  it frees only part of the memory. A swap file or partition on disk frees
-  the most.
-- **Terminal paging.** Reclaim from the origin scope works on the whole
-  terminal scope, so it can page out a little of the terminal emulator too.
-  It pages back in as soon as you use that window.
+- **zram vs disk swap (Linux).** zram keeps the "swapped" pages compressed in
+  RAM, so it frees only part of the memory. A swap file or partition on disk
+  frees the most.
+- **Terminal paging (Linux).** Reclaim from the origin scope works on the
+  whole terminal scope, so it can page out a little of the terminal emulator
+  too. It pages back in as soon as you use that window.
 
 ## License
 
