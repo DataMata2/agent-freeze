@@ -1,5 +1,3 @@
-//go:build linux
-
 // Package freezer orchestrates discover, cgroup and state to freeze and thaw
 // agent groups. This file holds the types front ends depend on.
 package freezer

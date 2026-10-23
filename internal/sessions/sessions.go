@@ -1,5 +1,3 @@
-//go:build linux
-
 // Package sessions reads the session metadata files Claude Code keeps in
 // ~/.claude/sessions/<pid>.json. It only reads them, never writes.
 package sessions
@@ -19,7 +17,7 @@ type Info struct {
 	PID        int    `json:"pid"`
 	SessionID  string `json:"sessionId"`
 	Cwd        string `json:"cwd"`
-	ProcStart  string `json:"procStart"` // /proc/<pid>/stat field 22, as a string
+	ProcStart  string `json:"procStart"` // see procfs.SameStart
 	Kind       string `json:"kind"`
 	Name       string `json:"name"`
 	NameSource string `json:"nameSource"` // "user" or "derived"

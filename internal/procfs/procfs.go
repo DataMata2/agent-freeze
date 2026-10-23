@@ -18,23 +18,6 @@ import (
 // ClockTicks is USER_HZ, the unit of Process.StartTime.
 const ClockTicks = 100
 
-// Process is one /proc/<pid> entry.
-type Process struct {
-	PID       int
-	PPID      int
-	StartTime uint64 // /proc/<pid>/stat field 22, clock ticks since boot
-	Comm      string
-	Exe       string   // readlink(/proc/<pid>/exe) with " (deleted)" stripped; "" if unreadable
-	Args      []string // cmdline split on NUL, trailing empty element dropped; nil for kernel threads
-	Cwd       string   // readlink(/proc/<pid>/cwd); "" if unreadable
-	RSS       uint64   // VmRSS * 1024; 0 if absent
-	Swap      uint64   // VmSwap * 1024; 0 if absent
-	Cgroup    string   // path from the "0::" line of /proc/<pid>/cgroup; "" if none
-}
-
-// MemInfo holds system memory figures in bytes.
-type MemInfo struct{ MemTotal, MemAvailable, SwapTotal, SwapFree uint64 }
-
 // FS reads a /proc-style tree rooted at Root.
 type FS struct{ Root string }
 
@@ -213,4 +196,10 @@ func (f FS) Uptime() (time.Duration, error) {
 		return 0, fmt.Errorf("procfs: uptime: %w", err)
 	}
 	return time.Duration(secs * float64(time.Second)).Round(time.Millisecond), nil
+}
+
+// SameStart reports whether procStart, the start time Claude Code writes in a
+// session file, is p's start time: on Linux the decimal StartTime.
+func SameStart(p *Process, procStart string) bool {
+	return procStart == strconv.FormatUint(p.StartTime, 10)
 }

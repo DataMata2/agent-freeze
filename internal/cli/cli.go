@@ -1,5 +1,3 @@
-//go:build linux
-
 // Package cli implements afz's command-line front end over freezer.API.
 package cli
 
@@ -13,22 +11,25 @@ import (
 	"github.com/DataMata2/agent-freeze/internal/discover"
 	"github.com/DataMata2/agent-freeze/internal/freezer"
 	"github.com/DataMata2/agent-freeze/internal/human"
+	"github.com/DataMata2/agent-freeze/internal/prog"
 )
 
 // Version is the afz version, set at build time with -ldflags -X.
 var Version = "dev"
 
-const usageHint = "usage: afz {list|freeze|thaw|status|version|help} [flags] [selector...]; see 'afz help'"
+// usageHint and helpText take the command name (prog.Name) as %[1]s.
+const usageHint = "usage: %[1]s {list|freeze|thaw|status|rename|version|help} [flags] [selector...]; see '%[1]s help'"
 
-const helpText = `afz - freeze idle coding agents to free RAM
+const helpText = `%[1]s - freeze idle coding agents to free RAM
 
-usage: afz <command> [flags] [selector...]
+usage: %[1]s <command> [flags] [selector...]
 
 commands:
   list      show agent groups (ID NAME STATE STATUS RAM SWAP PROCS CWD)
   freeze    freeze the selected groups and push their memory to swap
   thaw      thaw the selected groups
   status    show frozen totals and system memory
+  rename    rename this command, e.g. '%[1]s rename chill'
   version   print the version
   help      show this help (also -h, --help)
 
@@ -37,7 +38,7 @@ flags:
   --all              freeze/thaw: every eligible group instead of selectors
   --include-daemons  freeze --all: include agent daemons
   --yes              freeze: proceed even if free swap is too small
-  --force-self       freeze: allow freezing the group afz runs in
+  --force-self       freeze: allow freezing the group %[1]s runs in
   --all-procs        list: print each group's PIDs
 
 A selector is a group ID, a group key, or a case-insensitive substring of
@@ -50,6 +51,7 @@ var validFlags = map[string][]string{
 	"freeze":  {"--json", "--all", "--include-daemons", "--yes", "--force-self"},
 	"thaw":    {"--json", "--all"},
 	"status":  {"--json"},
+	"rename":  {"--json"},
 	"version": {"--json"},
 	"help":    {},
 	"-h":      {},
@@ -57,7 +59,7 @@ var validFlags = map[string][]string{
 }
 
 // takesSelectors reports which commands accept positional arguments.
-var takesSelectors = map[string]bool{"freeze": true, "thaw": true}
+var takesSelectors = map[string]bool{"freeze": true, "thaw": true, "rename": true}
 
 type opts struct {
 	json, all, includeDaemons, yes, forceSelf, allProcs bool
@@ -82,7 +84,7 @@ func Run(args []string, api freezer.API, stdout, stderr io.Writer) int {
 		if o.json {
 			o.writeJSON(map[string]string{"error": ue.msg})
 		} else {
-			fmt.Fprintf(stderr, "afz: %s\n%s\n", ue.msg, usageHint)
+			fmt.Fprintf(stderr, "%s: %s\n"+usageHint+"\n", prog.Name, ue.msg)
 		}
 		return 2
 	}
@@ -121,15 +123,20 @@ func dispatch(args []string, api freezer.API, o *output) error {
 
 	switch cmd {
 	case "help", "-h", "--help":
-		fmt.Fprint(o.stdout, helpText)
+		fmt.Fprintf(o.stdout, helpText, prog.Name)
 		return nil
 	case "version":
 		if o.json {
 			o.writeJSON(map[string]string{"version": Version})
 		} else {
-			fmt.Fprintf(o.stdout, "afz %s\n", Version)
+			fmt.Fprintf(o.stdout, "%s %s\n", prog.Name, Version)
 		}
 		return nil
+	case "rename":
+		if len(sels) != 1 {
+			return usagef("rename: give exactly one new name")
+		}
+		return rename(sels[0], o)
 	case "status":
 		st, err := api.Status()
 		if err != nil {

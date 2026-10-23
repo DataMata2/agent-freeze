@@ -1,5 +1,3 @@
-//go:build linux
-
 // Package human formats sizes, paths and durations for display.
 package human
 

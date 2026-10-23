@@ -1,5 +1,3 @@
-//go:build linux
-
 // Package tui is the interactive Bubble Tea front end over freezer.API.
 package tui
 

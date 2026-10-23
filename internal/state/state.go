@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || darwin
 
 // Package state persists freeze metadata in a JSON state file shared by all
 // afz processes. Writers serialize through an flock on a sidecar lock file and
@@ -31,6 +31,11 @@ type Entry struct {
 	RSSBefore uint64         `json:"rss_before"`
 	Freed     uint64         `json:"freed_bytes"`
 	Origins   map[int]string `json:"origins"` // pid -> origin cgroup
+
+	// macOS only, where a freeze stops processes with signals.
+	RootPID int            `json:"root_pid,omitempty"`
+	Shell   int            `json:"shell,omitempty"`  // the job's shell, stopped with the group
+	Starts  map[int]uint64 `json:"starts,omitempty"` // pid -> start time of every stopped process
 }
 
 // Store is a state file at Path.
