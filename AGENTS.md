@@ -1,7 +1,9 @@
 # afz for AI agents
 
-`afz` freezes coding-agent process groups (cgroup v2 freezer) and pushes their
-memory to swap; `thaw` resumes them exactly where they stopped. Always pass
+`afz` freezes coding-agent process groups (cgroup v2 freezer on Linux,
+`SIGSTOP` on macOS) and gets their memory out of RAM; `thaw` resumes them
+exactly where they stopped. The command may have been renamed (`afz rename`);
+use the name the user gave you. Always pass
 `--json`: each call prints one JSON object on stdout. Bare `afz` with stdout
 not a terminal behaves like `afz list` (text).
 
@@ -18,6 +20,10 @@ not a terminal behaves like `afz list` (text).
 - `freeze` shows a "frozen" banner and window title in the agent's terminal;
   `thaw` clears it and sends the agent `SIGWINCH` to redraw. Banner problems
   are `banner: ...` warnings only. `AFZ_NO_BANNER=1` disables the banner.
+- On macOS memory leaves RAM only once other apps need it, so `freed_bytes`
+  right after a freeze is small; `afz status` shows it growing. `swap_bytes`
+  is always 0 there.
+- **Never run `rename` unless the user asked for that name.**
 
 ## Commands
 
@@ -27,6 +33,7 @@ not a terminal behaves like `afz list` (text).
 | `afz freeze <sel>... \| --all [--include-daemons] [--yes] --json` | `{"results":[Result...],"freed_bytes":N}` |
 | `afz thaw <sel>... \| --all --json` | `{"results":[Result...],"freed_bytes":0}` |
 | `afz status --json` | `{"frozen":N,"freed_bytes":N,"frozen_swap_bytes":N,"mem_available_bytes":N,"swap_free_bytes":N}` |
+| `afz rename <name> --json` | `{"from":"<old path>","to":"<new path>"}` |
 | `afz version --json` | `{"version":"..."}` |
 
 A selector is a group `id`, a `key`, or a case-insensitive substring of `name`.
