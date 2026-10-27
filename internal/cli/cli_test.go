@@ -552,7 +552,7 @@ func TestVersionAndHelp(t *testing.T) {
 		if code != 0 {
 			t.Errorf("%s: code=%d", h, code)
 		}
-		if n := strings.Count(out, "\n"); n >= 25 {
+		if n := strings.Count(out, "\n"); n > 25 {
 			t.Errorf("%s: %d lines", h, n)
 		}
 		for _, w := range []string{"list", "freeze", "thaw", "status", "version", "help",

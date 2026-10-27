@@ -24,6 +24,8 @@ not a terminal behaves like `afz list` (text).
   right after a freeze is small; `afz status` shows it growing. `swap_bytes`
   is always 0 there.
 - **Never run `rename` unless the user asked for that name.**
+- **Never run `auto on`, `auto off` or `auto set` unless the user asked.**
+  Auto mode freezes the user's unused sessions by itself.
 
 ## Commands
 
@@ -33,6 +35,7 @@ not a terminal behaves like `afz list` (text).
 | `afz freeze <sel>... \| --all [--include-daemons] [--yes] --json` | `{"results":[Result...],"freed_bytes":N}` |
 | `afz thaw <sel>... \| --all --json` | `{"results":[Result...],"freed_bytes":0}` |
 | `afz status --json` | `{"frozen":N,"freed_bytes":N,"frozen_swap_bytes":N,"mem_available_bytes":N,"swap_free_bytes":N}` |
+| `afz auto [status] \| on \| off \| set <setting> <value> --json` | `{"mode":"manual\|auto","idle_minutes":N,"interval_seconds":N,"memory_level":"warn\|critical\|off","cpu_load":N,"cpu_use_percent":N,"away_minutes":N,"retry_minutes":N,"notify":B,"tab_thaw":B,"pins":[...],"service_running":B,"last_event":Event}` |
 | `afz rename <name> --json` | `{"from":"<old path>","to":"<new path>"}` |
 | `afz version --json` | `{"version":"..."}` |
 
@@ -43,11 +46,21 @@ A `list` query keeps groups whose name, cwd, agent or `id` contains it
 **Group:** `id` (root PID as string), `key`, `agent`, `name`, `session_id`
 (optional), `cwd`, `root_pid`, `start_time`, `pids`, `rss_bytes`, `swap_bytes`,
 `daemon`, `self`, `status` (`busy` | `idle` | `shell`; omitted if unknown),
-`state` (`running` | `frozen` | `partial`), `frozen_at` (optional, RFC 3339),
+`status_since` (optional, RFC 3339: when `status` last changed), `tty`
+(optional, the agent's terminal), `state` (`running` | `frozen` | `partial`), `frozen_at` (optional, RFC 3339),
 `freed_bytes`, `delegated`.
 
 **Result:** `id`, `key`, `name`, `ok`, `error` (optional), `warning`
 (optional), `rss_before`, `rss_after`, `swap_after`. Sizes are bytes.
+
+**Settings** for `auto set`: `idle`, `interval`, `memory` (`warn` | `critical` |
+`off`), `cpu-load` (0 = off), `cpu-use`, `away`, `retry`, `notify` (`on` |
+`off`), `tab-thaw` (`on` | `off`). A bad value is a usage error that names the
+allowed range.
+
+**Event:** `time`, `action` (`froze` | `thawed` | `failed`), `name`, `reason`
+(optional), `rss_bytes` (optional), `error` (optional). `last_event` and
+`pins` are omitted when empty.
 
 Errors: usage errors print `{"error":"..."}`; an operation error (e.g. not
 enough swap) also prints `{"error":"..."}`.

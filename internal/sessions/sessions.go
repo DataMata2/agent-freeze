@@ -22,6 +22,8 @@ type Info struct {
 	Name       string `json:"name"`
 	NameSource string `json:"nameSource"` // "user" or "derived"
 	Status     string `json:"status"`     // "busy", "idle" or "shell"
+	// StatusUpdatedAt is when Status last changed, in Unix ms; 0 if absent.
+	StatusUpdatedAt int64 `json:"statusUpdatedAt"`
 }
 
 // DefaultDir returns $CLAUDE_CONFIG_DIR/sessions if CLAUDE_CONFIG_DIR is set,

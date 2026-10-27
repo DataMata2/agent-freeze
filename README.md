@@ -76,8 +76,8 @@ Run `afz` with no arguments in a terminal:
 afz
 ```
 
-The header shows available RAM, free swap, the frozen count and total freed
-memory. Each row is one agent group with its state (running, frozen, partial),
+The header shows the mode (manual or auto), available RAM, free swap, the
+frozen count and total freed memory. Each row is one agent group with its state (running, frozen, partial),
 status (busy, idle, shell), RAM, swap and process count. Your own group is
 marked `(you)`.
 
@@ -91,6 +91,9 @@ marked `(you)`.
 | `F` | freeze all (except yourself and daemons) |
 | `U` | thaw all |
 | `/` | search: type to filter rows by name, cwd, agent or ID; `Enter` keeps the filter, `Esc` clears it |
+| `p` | pin or unpin the current row: auto mode never freezes a pinned row |
+| `m` | switch between manual and auto mode |
+| `s` | auto mode settings: `←`/`→` change, `enter` type a value, `s`/`esc` back |
 | `r` | refresh |
 | `q` | quit |
 
@@ -111,6 +114,7 @@ afz freeze --all                 # freeze every agent except you and daemons
 afz freeze 540032 my-project     # freeze by ID, key or name substring
 afz thaw --all                   # thaw everything frozen
 afz status                       # frozen totals, available RAM, free swap
+afz auto on                      # auto mode, see below
 afz rename chill                 # call the command chill from now on
 afz version
 afz help
@@ -158,6 +162,70 @@ mkdir -p ~/.claude/skills/afz && curl -fsSL https://raw.githubusercontent.com/Da
 
 The skill calls the command `afz`; if you renamed it, tell the session the
 new name.
+
+### Auto mode
+
+In auto mode `afz` watches the machine and freezes unused sessions for you
+when it runs short of memory or CPU. A background service does the work, so
+it runs with the TUI closed and starts again at login.
+
+```sh
+afz auto on            # turn it on (or press m in the TUI)
+afz auto set idle 5    # freeze sessions unused for 5 minutes or more
+afz auto               # mode, service, every setting and the last thing it did
+afz auto off           # back to manual; stops and removes the service
+```
+
+Every setting can be changed with `afz auto set <setting> <value>` or on the
+TUI's settings screen (`s`). The running service picks changes up at its next
+check.
+
+| Setting | Default | Meaning |
+| --- | --- | --- |
+| `idle` | `15` | minutes a session must be unused before a freeze (0 to 10080) |
+| `interval` | `30` | seconds between checks (5 to 3600) |
+| `memory` | `warn` | memory pressure that starts freezing: `warn`, `critical` or `off` |
+| `cpu-load` | `1` | load per CPU core that starts freezing; `0` turns the CPU check off |
+| `cpu-use` | `10` | % of one core an unused session must use to be frozen for CPU |
+| `away` | `5` | minutes a session must be unused while the selected tab is unknown |
+| `retry` | `30` | minutes before a session that failed to freeze is tried again |
+| `notify` | `on` | a notification on each auto freeze |
+| `tab-thaw` | `on` | selecting a frozen session's Terminal tab thaws it (macOS) |
+
+`auto off` does not thaw what auto mode froze; thaw those with `u` or
+`afz thaw`.
+
+At each check it reads the memory pressure (macOS
+`kern.memorystatus_vm_pressure_level`, Linux `/proc/pressure/memory`) and the
+load. Under memory pressure it freezes one unused session, the one unused the
+longest (then the largest), and checks again next time, until the pressure is
+back to normal. When the CPU is busy, it freezes the unused session that uses
+the most CPU. One session per check, never more.
+
+A session is unused when it is idle or at the shell prompt for at least the
+idle time, counted from its last turn or from when you last had its tab
+selected, whichever is later. A session it fails to freeze is left alone for
+the retry time. Auto mode never freezes a busy session, the session running it, a
+daemon, a pinned session (`p` in the TUI), or an agent with no status (only
+Claude Code reports one). Sessions running a dev server are not exempt: pin
+them if they must keep running.
+
+On macOS, auto mode also watches Apple Terminal: the session in the selected
+tab is never frozen, and a frozen session thaws as soon as you select its tab.
+The first time, macOS asks whether `afz` may control Terminal; allow it. While
+the tab cannot be read (permission denied, another app in front, Linux), a
+session must also be unused for the away time. Inside tmux, or in
+another terminal app, the selected tab cannot be matched to a session: pin
+the sessions you are working in, or raise the idle time. Each auto freeze
+shows a notification (`notify-send` on Linux).
+
+The service is a launchd agent on macOS
+(`~/Library/LaunchAgents/io.github.datamata2.agent-freeze.auto.plist`) and a
+systemd user unit on Linux (`agent-freeze-auto.service`). It runs the command
+from where it is installed; `afz rename` moves it along, but after moving the
+file yourself run `afz auto on` again. Settings live in `auto.json` and the
+history in `auto.log` next to the state file; `afz auto run` runs the loop in
+the foreground.
 
 ## How it works
 

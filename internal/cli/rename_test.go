@@ -20,6 +20,7 @@ func installFake(t *testing.T) (dir, bin string) {
 		t.Fatal(err)
 	}
 	t.Setenv("PATH", dir)
+	useFakeService(t)
 	oldArg0, oldExe := argv0, executable
 	t.Cleanup(func() { argv0, executable = oldArg0, oldExe })
 	argv0 = func() string { return "afz" }
