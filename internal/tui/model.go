@@ -3,7 +3,9 @@ package tui
 
 import (
 	"fmt"
+	"strings"
 	"time"
+	"unicode"
 
 	tea "github.com/charmbracelet/bubbletea"
 
@@ -21,6 +23,8 @@ const (
 var tick = tea.Tick
 
 const selfRefusal = "that's this agent's own session — use the CLI with --force-self"
+
+const hiddenRefusal = "selected rows are hidden by the filter"
 
 // Run runs the TUI in the alternate screen until the user quits.
 func Run(api freezer.API) error {
@@ -62,19 +66,21 @@ type opDoneMsg struct {
 }
 
 type model struct {
-	api      freezer.API
-	groups   []freezer.GroupView
-	status   freezer.Status
-	cursor   int
-	selected map[string]bool // by Group.Key
-	busy     bool            // an operation is running
-	frame    int             // spinner frame
-	opGen    int             // bumped per operation; see spinMsg
-	msg      string
-	confirm  *pendingFreeze
-	width    int
-	height   int
-	err      error
+	api       freezer.API
+	groups    []freezer.GroupView
+	status    freezer.Status
+	cursor    int             // index into visible()
+	selected  map[string]bool // by Group.Key; may include hidden rows
+	filter    string          // search text; rows must freezer.Match it
+	filtering bool            // the "/" prompt is open and takes every key
+	busy      bool            // an operation is running
+	frame     int             // spinner frame
+	opGen     int             // bumped per operation; see spinMsg
+	msg       string
+	confirm   *pendingFreeze
+	width     int
+	height    int
+	err       error
 }
 
 func newModel(api freezer.API) model {
@@ -119,8 +125,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return m, nil
 		}
 		m.err = nil
+		cur, _ := m.current()
 		m.groups, m.status = msg.groups, msg.status
-		m.cursor = clamp(m.cursor, 0, len(m.groups)-1)
+		m.follow(cur.Key)
 		present := make(map[string]bool, len(m.groups))
 		for _, g := range m.groups {
 			present[g.Key] = true
@@ -155,7 +162,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	s := k.String()
-	if s == "q" || s == "ctrl+c" {
+	if s == "ctrl+c" {
+		return m, tea.Quit
+	}
+	if m.filtering {
+		return m.handlePromptKey(k), nil
+	}
+	if s == "q" {
 		return m, tea.Quit
 	}
 	if m.busy {
@@ -173,11 +186,16 @@ func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 		return m.startFreeze(p.targets)
 	}
+	vis := m.visible()
 	switch s {
+	case "/":
+		m.filtering = true
+	case "esc":
+		m.setFilter("")
 	case "up", "k":
-		m.cursor = clamp(m.cursor-1, 0, len(m.groups)-1)
+		m.cursor = clamp(m.cursor-1, 0, len(vis)-1)
 	case "down", "j":
-		m.cursor = clamp(m.cursor+1, 0, len(m.groups)-1)
+		m.cursor = clamp(m.cursor+1, 0, len(vis)-1)
 	case " ", "space":
 		if g, ok := m.current(); ok {
 			m.selected[g.Key] = !m.selected[g.Key]
@@ -185,7 +203,11 @@ func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "a":
 		m.toggleAll()
 	case "f":
-		targets := m.chosen()
+		targets, ok := m.chosen()
+		if !ok {
+			m.msg = hiddenRefusal
+			return m, nil
+		}
 		for _, g := range targets {
 			if g.Self {
 				m.msg = selfRefusal
@@ -195,17 +217,22 @@ func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.busyGuard(targets)
 	case "F":
 		var targets []freezer.GroupView
-		for _, g := range m.groups {
+		for _, g := range vis {
 			if eligible(g) && g.State != "frozen" {
 				targets = append(targets, g)
 			}
 		}
 		return m.busyGuard(targets)
 	case "u":
-		return m.startThaw(m.chosen())
+		targets, ok := m.chosen()
+		if !ok {
+			m.msg = hiddenRefusal
+			return m, nil
+		}
+		return m.startThaw(targets)
 	case "U":
 		var targets []freezer.GroupView
-		for _, g := range m.groups {
+		for _, g := range vis {
 			if g.State == "frozen" || g.State == "partial" {
 				targets = append(targets, g)
 			}
@@ -217,48 +244,118 @@ func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	return m, nil
 }
 
-func eligible(g freezer.GroupView) bool { return !g.Self && !g.Daemon }
-
-func (m model) current() (freezer.GroupView, bool) {
-	if m.cursor < 0 || m.cursor >= len(m.groups) {
-		return freezer.GroupView{}, false
+// handlePromptKey edits the filter while the "/" prompt is open. Every
+// printable key is text; Enter closes the prompt, Esc also clears the filter.
+func (m model) handlePromptKey(k tea.KeyMsg) model {
+	switch k.Type {
+	case tea.KeyEnter:
+		m.filtering = false
+	case tea.KeyEsc:
+		m.filtering = false
+		m.setFilter("")
+	case tea.KeyBackspace:
+		if r := []rune(m.filter); len(r) > 0 {
+			m.setFilter(string(r[:len(r)-1]))
+		}
+	case tea.KeyRunes, tea.KeySpace:
+		// Pasted text may carry newlines or tabs; keep the line intact.
+		add := strings.Map(func(r rune) rune {
+			if unicode.IsPrint(r) {
+				return r
+			}
+			return -1
+		}, string(k.Runes))
+		m.setFilter(m.filter + add)
 	}
-	return m.groups[m.cursor], true
+	return m
 }
 
-// chosen returns the selected rows in list order, or the current row if none.
-func (m model) chosen() []freezer.GroupView {
-	var out []freezer.GroupView
-	for _, g := range m.groups {
-		if m.selected[g.Key] {
-			out = append(out, g)
+// setFilter changes the filter, keeping the cursor on its group if that
+// group is still visible.
+func (m *model) setFilter(f string) {
+	cur, _ := m.current()
+	m.filter = f
+	m.follow(cur.Key)
+}
+
+// follow puts the cursor on the visible row with key, or clamps it to the
+// visible rows if there is none.
+func (m *model) follow(key string) {
+	vis := m.visible()
+	for i, g := range vis {
+		if key != "" && g.Key == key {
+			m.cursor = i
+			return
 		}
 	}
-	if len(out) == 0 {
-		if g, ok := m.current(); ok {
+	m.cursor = clamp(m.cursor, 0, len(vis)-1)
+}
+
+// visible returns the rows matching the filter, in list order.
+func (m model) visible() []freezer.GroupView {
+	if m.filter == "" {
+		return m.groups
+	}
+	var out []freezer.GroupView
+	for _, g := range m.groups {
+		if freezer.Match(g, m.filter) {
 			out = append(out, g)
 		}
 	}
 	return out
 }
 
-// toggleAll selects every eligible row, or clears the selection if all
-// eligible rows are already selected.
+func eligible(g freezer.GroupView) bool { return !g.Self && !g.Daemon }
+
+func (m model) current() (freezer.GroupView, bool) {
+	vis := m.visible()
+	if m.cursor < 0 || m.cursor >= len(vis) {
+		return freezer.GroupView{}, false
+	}
+	return vis[m.cursor], true
+}
+
+// chosen returns the selected visible rows in list order, or the current
+// row if nothing is selected. Hidden selections are never acted on: if rows
+// are selected but none is visible, ok is false and there are no targets.
+func (m model) chosen() (targets []freezer.GroupView, ok bool) {
+	picked := false
+	for _, sel := range m.selected {
+		picked = picked || sel
+	}
+	for _, g := range m.visible() {
+		if m.selected[g.Key] {
+			targets = append(targets, g)
+		}
+	}
+	if len(targets) > 0 {
+		return targets, true
+	}
+	if picked {
+		return nil, false
+	}
+	if g, ok := m.current(); ok {
+		targets = append(targets, g)
+	}
+	return targets, true
+}
+
+// toggleAll selects exactly the eligible visible rows, or clears the visible
+// rows if those are all selected already. Hidden selections are kept.
 func (m *model) toggleAll() {
+	vis := m.visible()
 	all := true
-	for _, g := range m.groups {
+	for _, g := range vis {
 		if eligible(g) && !m.selected[g.Key] {
 			all = false
 			break
 		}
 	}
-	m.selected = map[string]bool{}
-	if all {
-		return
-	}
-	for _, g := range m.groups {
-		if eligible(g) {
+	for _, g := range vis {
+		if !all && eligible(g) {
 			m.selected[g.Key] = true
+		} else {
+			delete(m.selected, g.Key)
 		}
 	}
 }

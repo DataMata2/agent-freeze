@@ -1,0 +1,3 @@
+ID   NAME                       STATE    STATUS  RAM   SWAP  PROCS  CWD
+102  Acme web frontend builder  running  busy    400M  0B    3      ~/code/acme
+201  claude back                frozen   idle    30M   250M  1      /srv/back

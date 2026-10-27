@@ -386,14 +386,14 @@ func TestBusyIgnoresKeys(t *testing.T) {
 	api := newFake()
 	m := loaded(t, api)
 	m.busy = true
-	for _, k := range []string{"j", "space", "a", "f", "u", "F", "U", "r"} {
+	for _, k := range []string{"j", "space", "a", "f", "u", "F", "U", "r", "/"} {
 		nm, cmd := m.Update(key(k))
 		m = nm.(model)
 		if cmd != nil {
 			t.Errorf("key %q returned a command while busy", k)
 		}
 	}
-	if m.cursor != 0 || countSelected(m) != 0 || len(api.froze) != 0 || len(api.thawed) != 0 {
+	if m.cursor != 0 || countSelected(m) != 0 || len(api.froze) != 0 || len(api.thawed) != 0 || m.filtering {
 		t.Fatalf("state changed while busy: cursor=%d sel=%d", m.cursor, countSelected(m))
 	}
 	_, cmd := m.Update(key("q"))

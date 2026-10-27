@@ -1,0 +1,1 @@
+{"groups":[{"id":"410","key":"codex-410-1000","agent":"codex","name":"a very long session name that goes past forty runes","cwd":"/tmp/x","root_pid":410,"start_time":1000,"pids":[410],"rss_bytes":1572864,"swap_bytes":2147483648,"daemon":false,"self":false,"status":"idle","state":"partial","freed_bytes":0,"delegated":false}]}
