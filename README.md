@@ -268,6 +268,13 @@ because macOS creates swap files as it needs them.
   whole terminal scope, so it can page out a little of the terminal emulator
   too. It pages back in as soon as you use that window.
 
+## Better session names (optional)
+
+`afz` shows the names Claude Code gives its sessions. The opt-in hook in
+[contrib/session-title](contrib/session-title) names each session after its
+task and renames it when the work moves on, so the list says what every agent
+is doing.
+
 ## License
 
 MIT, see [LICENSE](LICENSE).
