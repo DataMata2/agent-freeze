@@ -19,7 +19,7 @@ func write(t *testing.T, dir, name, content string) {
 func TestLoad(t *testing.T) {
 	dir := t.TempDir()
 	write(t, dir, "540032.json", `{"pid":540032,"sessionId":"0719","cwd":"/home/u/p","procStart":"11162181",`+
-		`"kind":"interactive","name":"afz overseer","nameSource":"user","status":"busy","extra":1}`)
+		`"kind":"interactive","name":"afz overseer","nameSource":"user","status":"busy","statusUpdatedAt":1792800000000,"extra":1}`)
 	write(t, dir, "77.json", `{"pid":77,"sessionId":"s77","name":"acme-api-e1","nameSource":"derived","status":"idle"}`)
 	write(t, dir, "540032.json.key", `{"pid":1}`)
 	write(t, dir, "78.key", `{"pid":78}`)
@@ -35,7 +35,7 @@ func TestLoad(t *testing.T) {
 	}
 	want := map[int]sessions.Info{
 		540032: {PID: 540032, SessionID: "0719", Cwd: "/home/u/p", ProcStart: "11162181",
-			Kind: "interactive", Name: "afz overseer", NameSource: "user", Status: "busy"},
+			Kind: "interactive", Name: "afz overseer", NameSource: "user", Status: "busy", StatusUpdatedAt: 1792800000000},
 		77: {PID: 77, SessionID: "s77", Name: "acme-api-e1", NameSource: "derived", Status: "idle"},
 	}
 	if !reflect.DeepEqual(got, want) {

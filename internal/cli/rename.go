@@ -41,6 +41,11 @@ func rename(name string, o *output) error {
 	if err := os.Rename(from, to); err != nil {
 		return fmt.Errorf("rename: %w", err)
 	}
+	if serviceRunning() {
+		if err := installService(to); err != nil {
+			return fmt.Errorf("rename: renamed to %s, but auto mode still runs the old name; run '%s auto on': %w", to, name, err)
+		}
+	}
 	if o.json {
 		o.writeJSON(map[string]string{"from": from, "to": to})
 		return nil
