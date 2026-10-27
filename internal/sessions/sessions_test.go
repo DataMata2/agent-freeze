@@ -72,3 +72,34 @@ func TestDefaultDir(t *testing.T) {
 		t.Errorf("DefaultDir() with CLAUDE_CONFIG_DIR = %q, want %q", got, want)
 	}
 }
+
+func TestDirsAddsOtherClaudeConfigDirs(t *testing.T) {
+	home := t.TempDir()
+	for _, d := range []string{".claude/sessions", ".claude-work/sessions", ".claude-old"} {
+		if err := os.MkdirAll(filepath.Join(home, d), 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	primary := filepath.Join(home, ".claude", "sessions")
+	got := sessions.Dirs(primary)
+	want := []string{primary, filepath.Join(home, ".claude-work", "sessions")}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("Dirs = %v, want %v", got, want)
+	}
+}
+
+func TestLoadAllMergesDirsFirstWins(t *testing.T) {
+	a, b := t.TempDir(), t.TempDir()
+	write(t, a, "10.json", `{"pid":10,"name":"main account"}`)
+	write(t, b, "10.json", `{"pid":10,"name":"stale twin"}`)
+	write(t, b, "20.json", `{"pid":20,"name":"second account"}`)
+
+	got := sessions.LoadAll([]string{a, filepath.Join(a, "nope"), b})
+	want := map[int]sessions.Info{
+		10: {PID: 10, Name: "main account"},
+		20: {PID: 20, Name: "second account"},
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("LoadAll = %+v\nwant %+v", got, want)
+	}
+}

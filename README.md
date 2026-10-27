@@ -134,9 +134,10 @@ AI agents calling `afz` should read [AGENTS.md](AGENTS.md).
 
 An agent group is the agent's root process plus all its descendants (tool
 shells, MCP servers, and so on). Names come from Claude Code's session files
-(`~/.claude/sessions`), from `-n`/`--name`, or from the session ID, falling
-back to `<agent> @ <basename of cwd>`. Daemons are named like `claude daemon`
-or `claude bg-spare`.
+(`~/.claude/sessions`, plus `~/.claude-<name>/sessions` for each extra account
+run with `CLAUDE_CONFIG_DIR=~/.claude-<name>`), from `-n`/`--name`, or from
+the session ID, falling back to `<agent> @ <basename of cwd>`. Daemons are
+named like `claude daemon` or `claude bg-spare`.
 
 ### On Linux
 
