@@ -62,9 +62,9 @@ func (r *Runner) Check(cfg Config, focus Focus) error {
 	if !ok {
 		return nil
 	}
-	ev := Event{Time: now, Action: "froze", Name: g.Name, Reason: reason, RSS: g.RSS}
+	ev := Event{Time: now, Action: "froze", By: ByAuto, Name: g.Name, Reason: reason, RSS: g.RSS}
 	if res := r.API.Freeze(g, false); !res.OK {
-		ev.Action, ev.Error = "failed", res.Error
+		ev.Error = res.Error
 		if r.failedAt == nil {
 			r.failedAt = map[string]time.Time{}
 		}
@@ -89,9 +89,9 @@ func (r *Runner) ThawFocused(cfg Config, tty string) error {
 		if g.TTY != tty || (g.State != "frozen" && g.State != "partial") {
 			continue
 		}
-		ev := Event{Time: r.Now(), Action: "thawed", Name: g.Name, Reason: "tab selected"}
+		ev := Event{Time: r.Now(), Action: "thawed", By: ByAuto, Name: g.Name, Reason: "tab selected"}
 		if res := r.API.Thaw(g); !res.OK {
-			ev.Action, ev.Error = "failed", res.Error
+			ev.Error = res.Error
 		}
 		r.Log(ev)
 	}

@@ -18,6 +18,17 @@ import (
 
 var update = flag.Bool("update", false, "rewrite golden files")
 
+func TestMain(m *testing.M) {
+	dir, err := os.MkdirTemp("", "afz-cli-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("XDG_STATE_HOME", dir)
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
+}
+
 const mib = 1 << 20
 
 type freezeCall struct {

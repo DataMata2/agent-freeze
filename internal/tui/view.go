@@ -28,7 +28,7 @@ const (
 	minCwdW  = 10
 )
 
-const helpText = "↑/↓ j/k move  space select  a all  f freeze  u thaw  F/U freeze/thaw all  p pin  m auto/manual  s settings  r refresh  q quit"
+const helpText = "↑/↓ j/k move  space select  a all  f freeze  u thaw  F/U freeze/thaw all  p pin  m auto/manual  s settings  h history  r refresh  q quit"
 
 var spinFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
@@ -55,6 +55,17 @@ func (m model) View() string {
 
 	line(m.header(), titleStyle)
 	b.WriteByte('\n')
+	if m.history {
+		for _, l := range m.historyView(w) {
+			b.WriteString(l + "\n")
+		}
+		b.WriteByte('\n')
+		m.footer(line)
+		for _, h := range wrapHelp(historyHelp, w) {
+			line(h, helpStyle)
+		}
+		return strings.TrimSuffix(b.String(), "\n")
+	}
 	if m.settings {
 		for _, l := range m.settingsView(w) {
 			b.WriteString(l + "\n")
@@ -78,8 +89,8 @@ func (m model) View() string {
 	}
 
 	b.WriteByte('\n')
-	if m.lastAuto != "" {
-		line("auto: "+m.lastAuto, helpStyle)
+	if m.lastEvent != "" {
+		line("last: "+m.lastEvent, helpStyle)
 	}
 	m.footer(line)
 	for _, h := range wrapHelp(helpText, w) {

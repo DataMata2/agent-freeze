@@ -56,9 +56,10 @@ A selector is a group `id`, a `key`, or a case-insensitive substring of `name`.
 `off`), `tab-thaw` (`on` | `off`). A bad value is a usage error that names the
 allowed range.
 
-**Event:** `time`, `action` (`froze` | `thawed` | `failed`), `name`, `reason`
-(optional), `rss_bytes` (optional), `error` (optional). `last_event` and
-`pins` are omitted when empty.
+**Event:** `time`, `action` (`froze` | `thawed`), `by` (`auto` | `manual`),
+`name`, `reason` (optional), `rss_bytes` (optional), `error` (set when it
+failed). `freeze` and `thaw` are recorded as `manual`. `last_event` and `pins`
+are omitted when empty.
 
 Errors: usage errors print `{"error":"..."}`; an operation error (e.g. not
 enough swap) also prints `{"error":"..."}`.

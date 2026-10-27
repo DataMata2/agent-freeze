@@ -97,7 +97,7 @@ func TestViewShowsTheLastAutoAction(t *testing.T) {
 		t.Fatal(err)
 	}
 	m := loaded(t, newFake())
-	if !strings.Contains(plainView(m), "auto: Oct 27 15:04 froze api (memory pressure warn, 1.0G)") {
+	if !strings.Contains(plainView(m), "last: Oct 27 15:04 froze api (memory pressure warn, 1.0G)") {
 		t.Errorf("view:\n%s", plainView(m))
 	}
 }

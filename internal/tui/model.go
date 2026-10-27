@@ -48,12 +48,13 @@ type pendingFreeze struct {
 }
 
 type refreshMsg struct {
-	groups   []freezer.GroupView
-	status   freezer.Status
-	err      error
-	auto     auto.Config
-	autoErr  error
-	lastAuto string
+	groups    []freezer.GroupView
+	status    freezer.Status
+	err       error
+	auto      auto.Config
+	autoErr   error
+	lastEvent string
+	events    []auto.Event // only while the history screen is open
 }
 
 type settingsMsg struct {
@@ -70,30 +71,35 @@ type spinMsg struct{ gen int }
 type opDoneMsg struct {
 	thaw    bool
 	results []freezer.Result
+	logErr  error // the history could not be written
 }
 
 type model struct {
-	api      freezer.API
-	groups   []freezer.GroupView
-	status   freezer.Status
-	cursor   int
-	selected map[string]bool // by Group.Key
-	busy     bool            // an operation is running
-	frame    int             // spinner frame
-	opGen    int             // bumped per operation; see spinMsg
-	msg      string
-	confirm  *pendingFreeze
-	width    int
-	height   int
-	err      error
-	auto     auto.Config
-	lastAuto string
-	setAuto  func(on bool) error
+	api       freezer.API
+	groups    []freezer.GroupView
+	status    freezer.Status
+	cursor    int
+	selected  map[string]bool // by Group.Key
+	busy      bool            // an operation is running
+	frame     int             // spinner frame
+	opGen     int             // bumped per operation; see spinMsg
+	msg       string
+	confirm   *pendingFreeze
+	width     int
+	height    int
+	err       error
+	auto      auto.Config
+	lastEvent string
+	setAuto   func(on bool) error
 
 	settings  bool // the settings screen is open
 	setCursor int
 	editing   bool // typing a value on the settings screen
 	input     string
+
+	history    bool // the history screen is open
+	events     []auto.Event
+	histOffset int
 }
 
 func newModel(api freezer.API) model {
@@ -105,7 +111,7 @@ func (m model) Init() tea.Cmd {
 }
 
 func (m model) refreshCmd() tea.Cmd {
-	api := m.api
+	api, history := m.api, m.history
 	return func() tea.Msg {
 		groups, err := api.List()
 		if err != nil {
@@ -118,7 +124,13 @@ func (m model) refreshCmd() tea.Cmd {
 		msg := refreshMsg{groups: groups, status: st}
 		msg.auto, msg.autoErr = auto.LoadConfig(auto.DefaultPath())
 		if e, ok := auto.LastEvent(auto.LogPath()); ok {
-			msg.lastAuto = e.Time.Local().Format("Jan 2 15:04") + " " + e.String()
+			msg.lastEvent = e.Time.Local().Format("Jan 2 15:04") + " " + e.String()
+		}
+		if history {
+			var err error
+			if msg.events, err = auto.ReadEvents(auto.LogPath(), historyMax); err != nil {
+				msg.autoErr = err
+			}
 		}
 		return msg
 	}
@@ -174,7 +186,7 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.err = msg.autoErr
 		m.groups, m.status = msg.groups, msg.status
-		m.auto, m.lastAuto = msg.auto, msg.lastAuto
+		m.auto, m.lastEvent, m.events = msg.auto, msg.lastEvent, msg.events
 		m.cursor = clamp(m.cursor, 0, len(m.groups)-1)
 		present := make(map[string]bool, len(m.groups))
 		for _, g := range m.groups {
@@ -208,6 +220,9 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		m.busy = false
 		m.selected = map[string]bool{}
 		m.msg = summary(msg.thaw, msg.results)
+		if msg.logErr != nil {
+			m.msg += " (history not saved: " + msg.logErr.Error() + ")"
+		}
 		return m, m.refreshCmd()
 	case tea.KeyMsg:
 		return m.handleKey(msg)
@@ -225,6 +240,9 @@ func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	}
 	if m.settings {
 		return m.settingsKey(k)
+	}
+	if m.history {
+		return m.historyKey(k)
 	}
 	if m.confirm != nil {
 		p := m.confirm
@@ -280,6 +298,9 @@ func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 		return m.startModeSwitch()
 	case "s":
 		m.settings, m.msg = true, ""
+	case "h":
+		m.history, m.histOffset, m.msg = true, 0, ""
+		return m, m.refreshCmd()
 	case "p":
 		if g, ok := m.current(); ok {
 			return m, pinCmd(g)
@@ -375,7 +396,7 @@ func (m model) startFreeze(targets []freezer.GroupView) (tea.Model, tea.Cmd) {
 		for _, g := range targets {
 			res = append(res, api.Freeze(g, false))
 		}
-		return opDoneMsg{results: res}
+		return opDoneMsg{results: res, logErr: auto.LogManual(auto.LogPath(), false, res, time.Now())}
 	}
 	return m, tea.Batch(op, spinCmd(m.opGen))
 }
@@ -393,7 +414,7 @@ func (m model) startThaw(targets []freezer.GroupView) (tea.Model, tea.Cmd) {
 		for _, g := range targets {
 			res = append(res, api.Thaw(g))
 		}
-		return opDoneMsg{thaw: true, results: res}
+		return opDoneMsg{thaw: true, results: res, logErr: auto.LogManual(auto.LogPath(), true, res, time.Now())}
 	}
 	return m, tea.Batch(op, spinCmd(m.opGen))
 }

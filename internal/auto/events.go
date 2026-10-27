@@ -5,21 +5,32 @@ package auto
 import (
 	"bytes"
 	"encoding/json"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
+	"github.com/DataMata2/agent-freeze/internal/freezer"
 	"github.com/DataMata2/agent-freeze/internal/human"
 )
 
 // maxLogBytes is the size from which AppendEvent moves the log to <path>.1.
 const maxLogBytes = 512 << 10
 
-// Event is one thing auto mode did.
+// Who did an Event.
+const (
+	ByAuto   = "auto"
+	ByManual = "manual"
+)
+
+// Event is one freeze or thaw, by auto mode or by hand; Error is set when it failed.
 type Event struct {
 	Time   time.Time `json:"time"`
-	Action string    `json:"action"` // "froze" | "thawed" | "failed"
+	Action string    `json:"action"` // "froze" | "thawed"
+	By     string    `json:"by,omitempty"`
 	Name   string    `json:"name"`
 	Reason string    `json:"reason,omitempty"`
 	RSS    uint64    `json:"rss_bytes,omitempty"`
@@ -27,13 +38,91 @@ type Event struct {
 }
 
 func (e Event) String() string {
-	switch e.Action {
-	case "failed":
-		return fmt.Sprintf("could not freeze %s: %s", e.Name, e.Error)
-	case "froze":
-		return fmt.Sprintf("froze %s (%s, %s)", e.Name, e.Reason, human.Bytes(e.RSS))
+	if e.Failed() {
+		return fmt.Sprintf("could not %s %s: %s", e.Verb(), e.Name, e.Error)
 	}
-	return fmt.Sprintf("%s %s (%s)", e.Action, e.Name, e.Reason)
+	d := e.Details()
+	if e.By == ByManual {
+		d = strings.TrimSuffix("by hand, "+d, ", ")
+	}
+	if d != "" {
+		return fmt.Sprintf("%s %s (%s)", e.Action, e.Name, d)
+	}
+	return e.Action + " " + e.Name
+}
+
+// Failed reports whether the freeze or thaw did not happen.
+func (e Event) Failed() bool { return e.Error != "" }
+
+// Verb is "thaw" or "freeze", for "could not ..." messages.
+func (e Event) Verb() string {
+	if e.Action == "thawed" {
+		return "thaw"
+	}
+	return "freeze"
+}
+
+// Who is "you" for an action by hand, else "auto".
+func (e Event) Who() string {
+	if e.By == ByManual {
+		return "you"
+	}
+	return ByAuto
+}
+
+// Details is why and how much, e.g. "memory pressure warn, 1.0G", or the error when it failed.
+func (e Event) Details() string {
+	if e.Failed() {
+		return e.Error
+	}
+	var parts []string
+	if e.Reason != "" {
+		parts = append(parts, e.Reason)
+	}
+	if e.RSS > 0 {
+		parts = append(parts, human.Bytes(e.RSS))
+	}
+	return strings.Join(parts, ", ")
+}
+
+// LogManual records freezes or thaws done by hand in the log at path.
+func LogManual(path string, thaw bool, results []freezer.Result, now time.Time) error {
+	action := "froze"
+	if thaw {
+		action = "thawed"
+	}
+	for _, r := range results {
+		e := Event{Time: now, Action: action, By: ByManual, Name: r.Name, Error: r.Error}
+		if !thaw && r.OK {
+			e.RSS = r.RSSBefore
+		}
+		if err := AppendEvent(path, e); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ReadEvents returns up to max events from the log at path and its rotated copy, newest first.
+func ReadEvents(path string, max int) ([]Event, error) {
+	var events []Event
+	for _, p := range []string{path, path + ".1"} {
+		raw, err := os.ReadFile(p)
+		if errors.Is(err, fs.ErrNotExist) {
+			continue
+		}
+		if err != nil {
+			return nil, err
+		}
+		lines := bytes.Split(bytes.TrimSpace(raw), []byte("\n"))
+		for i := len(lines) - 1; i >= 0 && len(events) < max; i-- {
+			var e Event
+			if json.Unmarshal(lines[i], &e) == nil && e.Action != "" {
+				events = append(events, e)
+			}
+		}
+	}
+	return events, nil
 }
 
 // LogPath returns auto.log next to the settings file.

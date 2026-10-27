@@ -93,6 +93,7 @@ marked `(you)`.
 | `p` | pin or unpin the current row: auto mode never freezes a pinned row |
 | `m` | switch between manual and auto mode |
 | `s` | auto mode settings: `←`/`→` change, `enter` type a value, `s`/`esc` back |
+| `h` | history: every freeze and thaw, who did it (auto or you) and why |
 | `r` | refresh |
 | `q` | quit |
 
@@ -195,8 +196,8 @@ The service is a launchd agent on macOS
 systemd user unit on Linux (`agent-freeze-auto.service`). It runs the command
 from where it is installed; `afz rename` moves it along, but after moving the
 file yourself run `afz auto on` again. Settings live in `auto.json` and the
-history in `auto.log` next to the state file; `afz auto run` runs the loop in
-the foreground.
+history of every freeze and thaw, by auto mode or by hand, in `auto.log` next
+to the state file; `afz auto run` runs the loop in the foreground.
 
 ## How it works
 

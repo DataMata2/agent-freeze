@@ -204,3 +204,24 @@ func TestRenameLeavesAStoppedServiceAlone(t *testing.T) {
 		t.Fatalf("code=%d installed=%q", code, s.installed)
 	}
 }
+
+func TestFreezeAndThawByHandGoToTheHistory(t *testing.T) {
+	t.Setenv("XDG_STATE_HOME", t.TempDir())
+	f := newFake(t)
+	if code, _, errs := run(f, "freeze", "102"); code != 0 || errs != "" {
+		t.Fatalf("freeze: code=%d stderr=%q", code, errs)
+	}
+	if code, _, errs := run(f, "thaw", "201"); code != 0 || errs != "" {
+		t.Fatalf("thaw: code=%d stderr=%q", code, errs)
+	}
+	got, err := auto.ReadEvents(auto.LogPath(), 10)
+	if err != nil || len(got) != 2 {
+		t.Fatalf("history = %+v, %v", got, err)
+	}
+	if got[0].Action != "thawed" || got[0].Name != "claude back" || got[0].By != auto.ByManual {
+		t.Errorf("newest = %+v", got[0])
+	}
+	if got[1].Action != "froze" || got[1].Name != "Acme web frontend builder" || got[1].By != auto.ByManual || got[1].RSS == 0 {
+		t.Errorf("oldest = %+v", got[1])
+	}
+}

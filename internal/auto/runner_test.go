@@ -129,7 +129,7 @@ func TestCheckFreezesOneGroupLogsAndNotifies(t *testing.T) {
 		t.Fatalf("events %v, notices %v", rec.events, rec.notices)
 	}
 	ev := rec.events[0]
-	if ev.Action != "froze" || ev.Name != "older" || !strings.Contains(rec.notices[0], "older") || !strings.Contains(ev.String(), "memory pressure") {
+	if ev.Action != "froze" || ev.Name != "older" || ev.By != ByAuto || !strings.Contains(rec.notices[0], "older") || !strings.Contains(ev.String(), "memory pressure") {
 		t.Errorf("event %+v / notice %q", ev, rec.notices[0])
 	}
 }
@@ -140,7 +140,7 @@ func TestCheckLogsAFailedFreezeWithoutNotifying(t *testing.T) {
 	if err := newRunner(api, memWarn, rec).Check(autoCfg(), noFocus()); err != nil {
 		t.Fatal(err)
 	}
-	if len(rec.events) != 1 || rec.events[0].Action != "failed" || rec.events[0].Error != "boom" || len(rec.notices) != 0 {
+	if len(rec.events) != 1 || rec.events[0].Action != "froze" || rec.events[0].Error != "boom" || len(rec.notices) != 0 {
 		t.Fatalf("events %+v, notices %v", rec.events, rec.notices)
 	}
 }

@@ -7,7 +7,9 @@ import (
 	"io"
 	"slices"
 	"strings"
+	"time"
 
+	"github.com/DataMata2/agent-freeze/internal/auto"
 	"github.com/DataMata2/agent-freeze/internal/discover"
 	"github.com/DataMata2/agent-freeze/internal/freezer"
 	"github.com/DataMata2/agent-freeze/internal/human"
@@ -243,6 +245,9 @@ func freezeThaw(freeze bool, sels []string, op opts, api freezer.API, o *output)
 			o.code = 1
 		}
 		results = append(results, r)
+	}
+	if err := auto.LogManual(auto.LogPath(), !freeze, results, time.Now()); err != nil {
+		fmt.Fprintf(o.stderr, "%s: history: %s\n", prog.Name, err)
 	}
 	o.results(freeze, results)
 	return nil
