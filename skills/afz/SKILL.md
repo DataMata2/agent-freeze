@@ -22,6 +22,7 @@ Always pass `--json`; each call prints one JSON object on stdout.
 | Command | Output |
 | --- | --- |
 | `afz list --json` | `{"groups":[Group...]}` |
+| `afz list <query>... --json` | same; only groups whose name, cwd, agent or `id` contains a query (case-insensitive; no match is `{"groups":[]}`, exit 0) |
 | `afz freeze <sel>... --json` | `{"results":[Result...],"freed_bytes":N}` |
 | `afz freeze --all --json` | same; skips your own group and daemons |
 | `afz thaw <sel>... --json` or `afz thaw --all --json` | `{"results":[Result...],"freed_bytes":0}` |

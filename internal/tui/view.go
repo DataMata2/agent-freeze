@@ -28,7 +28,7 @@ const (
 	minCwdW  = 10
 )
 
-const helpText = "↑/↓ j/k move  space select  a all  f freeze  u thaw  F freeze all  U thaw all  r refresh  q quit"
+const helpText = "↑/↓ j/k move  space select  a all  f freeze  u thaw  F freeze all  U thaw all  / search  r refresh  q quit"
 
 var spinFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
@@ -53,15 +53,23 @@ func (m model) View() string {
 		b.WriteByte('\n')
 	}
 
+	vis := m.visible()
 	line(m.header(), titleStyle)
-	b.WriteByte('\n')
+	if m.filter != "" {
+		line(fmt.Sprintf("filter: %s  (%d/%d)", m.filter, len(vis), len(m.groups)), promptStyle)
+	} else {
+		b.WriteByte('\n')
+	}
 
 	nameW, cwdW := m.columnWidths(w)
 	line(formatRow("", "NAME", "STATE", "STATUS", "RAM", "SWAP", "PROCS", "CWD", nameW, cwdW), colHeadStyle)
-	if len(m.groups) == 0 {
+	switch {
+	case len(m.groups) == 0:
 		line("  no agent groups found", helpStyle)
+	case len(vis) == 0:
+		line("  no match", helpStyle)
 	}
-	for i, g := range m.groups {
+	for i, g := range vis {
 		b.WriteString(m.renderRow(i, g, nameW, cwdW, w))
 		b.WriteByte('\n')
 	}
@@ -73,7 +81,9 @@ func (m model) View() string {
 	if m.confirm != nil {
 		line(m.confirm.prompt(), promptStyle)
 	}
-	if m.busy {
+	if m.filtering {
+		line("/"+m.filter+"█", promptStyle)
+	} else if m.busy {
 		line(spinFrames[m.frame%len(spinFrames)]+" working…", lipgloss.NewStyle())
 	} else if m.msg != "" {
 		line(m.msg, lipgloss.NewStyle())

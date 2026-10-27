@@ -181,6 +181,38 @@ func TestListJSON(t *testing.T) {
 	}
 }
 
+func TestListQuery(t *testing.T) {
+	// "acme" matches a cwd, "BACK" a name; queries are OR'd.
+	code, out, errs := run(listFake(t), "list", "acme", "BACK")
+	if code != 0 || errs != "" {
+		t.Fatalf("code=%d stderr=%q", code, errs)
+	}
+	golden(t, "list_query", out)
+
+	code, out, _ = run(listFake(t), "list", "codex", "--json")
+	if code != 0 {
+		t.Fatalf("code=%d", code)
+	}
+	golden(t, "list_query_json", out)
+
+	// --all-procs still applies on top of a query.
+	code, out, _ = run(listFake(t), "list", "--all-procs", "~/projects")
+	if code != 0 || strings.Count(out, "  pids: ") != 1 || !strings.Contains(out, "  pids: 300 301 302 303\n") {
+		t.Fatalf("code=%d out:\n%s", code, out)
+	}
+}
+
+func TestListQueryNoMatch(t *testing.T) {
+	code, out, errs := run(listFake(t), "list", "zzz")
+	if code != 0 || errs != "" || strings.Count(out, "\n") != 1 || !strings.HasPrefix(out, "ID ") {
+		t.Fatalf("code=%d stderr=%q out=%q", code, errs, out)
+	}
+	code, out, _ = run(listFake(t), "list", "zzz", "--json")
+	if code != 0 || out != `{"groups":[]}`+"\n" {
+		t.Fatalf("code=%d out=%q", code, out)
+	}
+}
+
 func TestListStatusColumn(t *testing.T) {
 	_, out, _ := run(newFake(t), "list")
 	lines := strings.Split(strings.TrimRight(out, "\n"), "\n")
@@ -387,7 +419,6 @@ func TestUsageErrors(t *testing.T) {
 		{"thaw", "--include-daemons", "--all"},
 		{"list", "--yes"},
 		{"list", "--all"},
-		{"list", "102"},
 		{"status", "--all-procs"},
 		{"status", "x"},
 		{"version", "--all"},
