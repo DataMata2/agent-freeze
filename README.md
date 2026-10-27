@@ -130,6 +130,25 @@ failed), `2` usage error, unknown or ambiguous selector.
 
 AI agents calling `afz` should read [AGENTS.md](AGENTS.md).
 
+### Claude Code skill
+
+[`skills/afz/SKILL.md`](skills/afz/SKILL.md) tells Claude Code sessions that
+`afz` exists and how to use it safely, so a session can answer "what is using
+my RAM?" or "park the idle sessions" by itself. Install it from a clone:
+
+```sh
+mkdir -p ~/.claude/skills/afz && cp skills/afz/SKILL.md ~/.claude/skills/afz/
+```
+
+or without one:
+
+```sh
+mkdir -p ~/.claude/skills/afz && curl -fsSL https://raw.githubusercontent.com/DataMata2/agent-freeze/main/skills/afz/SKILL.md -o ~/.claude/skills/afz/SKILL.md
+```
+
+The skill calls the command `afz`; if you renamed it, tell the session the
+new name.
+
 ## How it works
 
 An agent group is the agent's root process plus all its descendants (tool
