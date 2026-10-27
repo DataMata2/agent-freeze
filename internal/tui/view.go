@@ -28,7 +28,7 @@ const (
 	minCwdW  = 10
 )
 
-const helpText = "↑/↓ j/k move  space select  a all  f freeze  u thaw  F freeze all  U thaw all  r refresh  q quit"
+const helpText = "↑/↓ j/k move  space select  a all  f freeze  u thaw  F/U freeze/thaw all  p pin  m auto/manual  s settings  r refresh  q quit"
 
 var spinFrames = []string{"⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"}
 
@@ -55,6 +55,17 @@ func (m model) View() string {
 
 	line(m.header(), titleStyle)
 	b.WriteByte('\n')
+	if m.settings {
+		for _, l := range m.settingsView(w) {
+			b.WriteString(l + "\n")
+		}
+		b.WriteByte('\n')
+		m.footer(line)
+		for _, h := range wrapHelp(m.settingsHelpText(), w) {
+			line(h, helpStyle)
+		}
+		return strings.TrimSuffix(b.String(), "\n")
+	}
 
 	nameW, cwdW := m.columnWidths(w)
 	line(formatRow("", "NAME", "STATE", "STATUS", "RAM", "SWAP", "PROCS", "CWD", nameW, cwdW), colHeadStyle)
@@ -67,6 +78,34 @@ func (m model) View() string {
 	}
 
 	b.WriteByte('\n')
+	if m.lastAuto != "" {
+		line("auto: "+m.lastAuto, helpStyle)
+	}
+	m.footer(line)
+	for _, h := range wrapHelp(helpText, w) {
+		line(h, helpStyle)
+	}
+	return strings.TrimSuffix(b.String(), "\n")
+}
+
+// wrapHelp breaks help text between its key groups (two spaces apart) so no line is wider than w.
+func wrapHelp(text string, w int) []string {
+	var lines []string
+	cur := ""
+	for _, group := range strings.Split(text, "  ") {
+		if cur != "" && runeLen(cur)+2+runeLen(group) > w {
+			lines, cur = append(lines, cur), ""
+		}
+		if cur != "" {
+			cur += "  "
+		}
+		cur += group
+	}
+	return append(lines, cur)
+}
+
+// footer renders the error, the y/n prompt and the status message.
+func (m model) footer(line func(string, lipgloss.Style)) {
 	if m.err != nil {
 		line("error: "+m.err.Error()+" (retrying)", errStyle)
 	}
@@ -78,13 +117,11 @@ func (m model) View() string {
 	} else if m.msg != "" {
 		line(m.msg, lipgloss.NewStyle())
 	}
-	line(helpText, helpStyle)
-	return strings.TrimSuffix(b.String(), "\n")
 }
 
 func (m model) header() string {
-	return fmt.Sprintf("agent-freeze   RAM free %s   swap free %s   frozen %d (freed %s)",
-		human.Bytes(m.status.MemAvailable), human.Bytes(m.status.SwapFree),
+	return fmt.Sprintf("agent-freeze   mode %s   RAM free %s   swap free %s   frozen %d (freed %s)",
+		m.auto.Mode, human.Bytes(m.status.MemAvailable), human.Bytes(m.status.SwapFree),
 		m.status.Frozen, human.Bytes(m.status.Freed))
 }
 
@@ -101,7 +138,7 @@ func (p *pendingFreeze) prompt() string {
 func (m model) columnWidths(w int) (nameW, cwdW int) {
 	nameW = len("NAME")
 	for _, g := range m.groups {
-		nameW = max(nameW, runeLen(g.Name+marker(g)))
+		nameW = max(nameW, runeLen(g.Name+m.marker(g)))
 	}
 	nameW = min(nameW, maxNameW)
 	avail := w - fixedW
@@ -111,12 +148,14 @@ func (m model) columnWidths(w int) (nameW, cwdW int) {
 	return nameW, max(0, avail-nameW)
 }
 
-func marker(g freezer.GroupView) string {
+func (m model) marker(g freezer.GroupView) string {
 	switch {
 	case g.Self:
 		return " (you)"
 	case g.Daemon:
 		return " [daemon]"
+	case m.auto.Pinned(g):
+		return " [pinned]"
 	}
 	return ""
 }
@@ -130,8 +169,8 @@ func (m model) renderRow(i int, g freezer.GroupView, nameW, cwdW, w int) string 
 	if m.selected[g.Key] {
 		box = "[x]"
 	}
-	// Truncate the name, not the marker, so (you)/[daemon] stay visible.
-	mk := marker(g)
+	// Truncate the name, not the marker, so (you)/[daemon]/[pinned] stay visible.
+	mk := m.marker(g)
 	name := truncRight(g.Name, max(1, nameW-runeLen(mk))) + mk
 	status := g.Status
 	if status == "" {

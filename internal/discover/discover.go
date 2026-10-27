@@ -8,6 +8,8 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
+	"unicode"
 
 	"github.com/DataMata2/agent-freeze/internal/procfs"
 	"github.com/DataMata2/agent-freeze/internal/sessions"
@@ -37,6 +39,9 @@ type Group struct {
 	Daemon    bool   `json:"daemon"`
 	Self      bool   `json:"self"`
 	Status    string `json:"status,omitempty"` // "busy" | "idle" | "shell" | "" (unknown)
+	// StatusSince is when Status last changed; nil if unknown.
+	StatusSince *time.Time `json:"status_since,omitempty"`
+	TTY         string     `json:"tty,omitempty"` // "" if none, and always on Linux
 }
 
 // AgentOf returns the agent name p runs, or "" if it is not an agent.
@@ -259,6 +264,7 @@ func Groups(procs map[int]*procfs.Process, selfPID int) []Group {
 			StartTime: p.StartTime,
 			PIDs:      ix.members(root, selfPID),
 			Cwd:       p.Cwd,
+			TTY:       p.TTY,
 		}
 		for _, pid := range g.PIDs {
 			g.RSS += procs[pid].RSS
@@ -271,6 +277,7 @@ func Groups(procs map[int]*procfs.Process, selfPID int) []Group {
 			for _, c := range ix.children[root] {
 				if ix.agent[c] != "" {
 					g.Cwd = procs[c].Cwd
+					g.TTY = procs[c].TTY
 					break
 				}
 			}
@@ -336,8 +343,16 @@ func sessionID(args []string) string {
 	return v
 }
 
-// collapse trims s and folds internal whitespace runs to one space.
-func collapse(s string) string { return strings.Join(strings.Fields(s), " ") }
+// collapse trims s and folds whitespace and control characters (terminal escapes) to one space.
+func collapse(s string) string {
+	visible := strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
+	return strings.Join(strings.Fields(visible), " ")
+}
 
 // argvName returns the collapsed -n/--name value in args, or "".
 func argvName(args []string) string {
@@ -447,5 +462,9 @@ func Enrich(groups []Group, procs map[int]*procfs.Process, infos map[int]session
 			g.SessionID = info.SessionID
 		}
 		g.Status = info.Status
+		if info.StatusUpdatedAt > 0 {
+			since := time.UnixMilli(info.StatusUpdatedAt)
+			g.StatusSince = &since
+		}
 	}
 }
