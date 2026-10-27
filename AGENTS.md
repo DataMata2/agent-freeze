@@ -29,7 +29,7 @@ not a terminal behaves like `afz list` (text).
 
 | Command | JSON output |
 | --- | --- |
-| `afz list --json` | `{"groups":[Group...]}` |
+| `afz list [<query>...] --json` | `{"groups":[Group...]}` |
 | `afz freeze <sel>... \| --all [--include-daemons] [--yes] --json` | `{"results":[Result...],"freed_bytes":N}` |
 | `afz thaw <sel>... \| --all --json` | `{"results":[Result...],"freed_bytes":0}` |
 | `afz status --json` | `{"frozen":N,"freed_bytes":N,"frozen_swap_bytes":N,"mem_available_bytes":N,"swap_free_bytes":N}` |
@@ -37,6 +37,8 @@ not a terminal behaves like `afz list` (text).
 | `afz version --json` | `{"version":"..."}` |
 
 A selector is a group `id`, a `key`, or a case-insensitive substring of `name`.
+A `list` query keeps groups whose name, cwd, agent or `id` contains it
+(case-insensitive; several are OR'd; no match is `{"groups":[]}`, exit 0).
 
 **Group:** `id` (root PID as string), `key`, `agent`, `name`, `session_id`
 (optional), `cwd`, `root_pid`, `start_time`, `pids`, `rss_bytes`, `swap_bytes`,

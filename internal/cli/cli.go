@@ -18,14 +18,14 @@ import (
 var Version = "dev"
 
 // usageHint and helpText take the command name (prog.Name) as %[1]s.
-const usageHint = "usage: %[1]s {list|freeze|thaw|status|rename|version|help} [flags] [selector...]; see '%[1]s help'"
+const usageHint = "usage: %[1]s {list|freeze|thaw|status|rename|version|help} [flags] [selector|query...]; see '%[1]s help'"
 
 const helpText = `%[1]s - freeze idle coding agents to free RAM
 
-usage: %[1]s <command> [flags] [selector...]
+usage: %[1]s <command> [flags] [selector|query...]
 
 commands:
-  list      show agent groups (ID NAME STATE STATUS RAM SWAP PROCS CWD)
+  list      show agent groups, or only those matching any query
   freeze    freeze the selected groups and free their RAM
   thaw      thaw the selected groups
   status    show frozen totals and system memory
@@ -43,6 +43,7 @@ flags:
 
 A selector is a group ID, a group key, or a case-insensitive substring of
 the name. An exact ID or key wins; a substring matching several is an error.
+A list query is a case-insensitive substring of the name, cwd, agent or ID.
 `
 
 // validFlags lists the flags each command accepts.
@@ -58,8 +59,9 @@ var validFlags = map[string][]string{
 	"--help":  {},
 }
 
-// takesSelectors reports which commands accept positional arguments.
-var takesSelectors = map[string]bool{"freeze": true, "thaw": true, "rename": true}
+// takesArgs reports which commands accept positional arguments: selectors
+// for freeze and thaw, queries for list, the new name for rename.
+var takesArgs = map[string]bool{"freeze": true, "thaw": true, "list": true, "rename": true}
 
 type opts struct {
 	json, all, includeDaemons, yes, forceSelf, allProcs bool
@@ -117,7 +119,7 @@ func dispatch(args []string, api freezer.API, o *output) error {
 		}
 		*p = true
 	}
-	if len(sels) > 0 && !takesSelectors[cmd] {
+	if len(sels) > 0 && !takesArgs[cmd] {
 		return usagef("%s takes no arguments", cmd)
 	}
 
@@ -149,10 +151,25 @@ func dispatch(args []string, api freezer.API, o *output) error {
 		if err != nil {
 			return err
 		}
-		o.list(groups, op.allProcs)
+		o.list(filter(groups, sels), op.allProcs)
 		return nil
 	}
 	return freezeThaw(cmd == "freeze", sels, op, api, o)
+}
+
+// filter returns the groups matching any of queries, or all groups if there
+// are none.
+func filter(groups []freezer.GroupView, queries []string) []freezer.GroupView {
+	if len(queries) == 0 {
+		return groups
+	}
+	var out []freezer.GroupView
+	for _, g := range groups {
+		if slices.ContainsFunc(queries, func(q string) bool { return freezer.Match(g, q) }) {
+			out = append(out, g)
+		}
+	}
+	return out
 }
 
 // flagPtr maps a flag name to its field in op.

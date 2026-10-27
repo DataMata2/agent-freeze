@@ -90,8 +90,13 @@ marked `(you)`.
 | `u` | thaw the selected rows, or the current row |
 | `F` | freeze all (except yourself and daemons) |
 | `U` | thaw all |
+| `/` | search: type to filter rows by name, cwd, agent or ID; `Enter` keeps the filter, `Esc` clears it |
 | `r` | refresh |
 | `q` | quit |
+
+With a filter active, `a`, `f`, `u`, `F` and `U` act on the visible rows
+only; a selected row that the filter hides stays selected but is not touched.
+If every selected row is hidden, `f` and `u` do nothing.
 
 When stdout is not a terminal (a pipe, or an AI agent calling it), bare `afz`
 prints `afz list` instead of opening the TUI.
@@ -101,6 +106,7 @@ prints `afz list` instead of opening the TUI.
 ```sh
 afz list                         # ID NAME STATE STATUS RAM SWAP PROCS CWD
 afz list --all-procs             # also print each group's PIDs
+afz list acme src/api            # only groups matching any query
 afz freeze --all                 # freeze every agent except you and daemons
 afz freeze 540032 my-project     # freeze by ID, key or name substring
 afz thaw --all                   # thaw everything frozen
@@ -113,6 +119,10 @@ afz help
 A selector is a group ID (the root PID), a group key, or a case-insensitive
 substring of the name. An exact ID or key wins; a substring matching several
 groups is an error that lists the candidates.
+
+A `list` query is a case-insensitive substring of the name, the cwd (full or
+`~`-shortened), the agent or the ID; several queries are OR'd. No match is an
+empty list, not an error.
 
 Flags:
 
