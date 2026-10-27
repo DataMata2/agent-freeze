@@ -1,4 +1,4 @@
-//go:build linux
+//go:build linux || darwin
 
 // Package banner writes a "frozen" notice into a frozen agent's terminal:
 // a reverse-video line on the bottom row and the window title. A frozen
@@ -11,7 +11,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strconv"
 	"strings"
 	"syscall"
 	"time"
@@ -20,7 +19,7 @@ import (
 
 	"golang.org/x/sys/unix"
 
-	"github.com/DataMata2/agent-freeze/internal/procfs"
+	"github.com/DataMata2/agent-freeze/internal/prog"
 )
 
 const (
@@ -35,12 +34,11 @@ const (
 	pushTitle     = "\x1b[22;2t" // XTWINOPS: save the window title on the stack
 	popTitle      = "\x1b[23;2t" // XTWINOPS: restore it
 
-	frozenText   = " ❄ frozen by afz at %s — keystrokes are queued until thaw · don't close this window "
-	frozenTitle  = "❄ FROZEN — "
-	clockLayout  = "15:04"
-	ptsPrefix    = "/dev/pts/"
-	ttyPrefix    = "/dev/tty"
-	maxFDToCheck = 2
+	frozenText  = " ❄ frozen by %s at %s — keystrokes are queued until thaw · don't close this window "
+	frozenTitle = "❄ FROZEN — "
+	clockLayout = "15:04"
+	ptsPrefix   = "/dev/pts/"
+	ttyPrefix   = "/dev/tty"
 	// abortTail ends whatever a partial write left open: the title (BEL),
 	// reverse video and the saved cursor.
 	abortTail = titleEnd + resetAttrs + restoreCursor
@@ -48,17 +46,6 @@ const (
 
 // Seams for tests; production uses the real kernel.
 var (
-	// sameFile reports whether the fd magic link and the path it names are
-	// the same inode. A process in another devpts instance (a container)
-	// has a /dev/pts/N that is not the host's /dev/pts/N.
-	sameFile = func(link, target string) bool {
-		a, err := os.Stat(link) // follows the magic link to the real inode
-		if err != nil {
-			return false
-		}
-		b, err := os.Stat(target)
-		return err == nil && os.SameFile(a, b) // compares Dev and Ino
-	}
 	// termWidth returns the column count of the terminal open on fd, or 0
 	// if unknown.
 	termWidth = func(fd int) int {
@@ -70,21 +57,6 @@ var (
 	}
 	rawWrite = syscall.Write
 )
-
-// TTY returns the terminal device of pid: the target of the first of
-// /proc/<pid>/fd/0, 1 and 2 that is a /dev/pts/* or /dev/tty* path and is
-// the very file that fd has open (same device and inode), or "".
-func TTY(proc procfs.FS, pid int) string {
-	dir := filepath.Join(proc.Root, strconv.Itoa(pid), "fd")
-	for fd := 0; fd <= maxFDToCheck; fd++ {
-		link := filepath.Join(dir, strconv.Itoa(fd))
-		target, err := os.Readlink(link)
-		if err == nil && isTTYPath(target) && sameFile(link, target) {
-			return target
-		}
-	}
-	return ""
-}
 
 // isTTYPath reports whether p is a clean /dev/pts/N or /dev/ttyX path.
 // "/dev/tty" itself is excluded: it means the caller's own terminal.
@@ -130,7 +102,7 @@ func ClearFrozen(tty, name string) error {
 }
 
 func showFrozen(path, name string, at time.Time) error {
-	text := fmt.Sprintf(frozenText, at.Local().Format(clockLayout))
+	text := fmt.Sprintf(frozenText, sanitize(prog.Name), at.Local().Format(clockLayout))
 	return write(path, func(cols int) string {
 		if cols > 0 {
 			text = truncate(text, cols-1)

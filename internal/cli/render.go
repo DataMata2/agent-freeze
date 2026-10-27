@@ -1,5 +1,3 @@
-//go:build linux
-
 package cli
 
 import (
@@ -13,6 +11,7 @@ import (
 
 	"github.com/DataMata2/agent-freeze/internal/freezer"
 	"github.com/DataMata2/agent-freeze/internal/human"
+	"github.com/DataMata2/agent-freeze/internal/prog"
 )
 
 // maxName is the NAME column width in runes, before any suffix.
@@ -38,7 +37,7 @@ func (o *output) fail(err error) {
 		o.writeJSON(map[string]string{"error": err.Error()})
 		return
 	}
-	fmt.Fprintf(o.stderr, "afz: %s\n", err)
+	fmt.Fprintf(o.stderr, "%s: %s\n", prog.Name, err)
 }
 
 // truncName shortens s to maxName runes, ending in "…" when cut.

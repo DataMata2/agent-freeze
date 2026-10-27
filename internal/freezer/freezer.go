@@ -15,6 +15,7 @@ import (
 	"github.com/DataMata2/agent-freeze/internal/cgroup"
 	"github.com/DataMata2/agent-freeze/internal/discover"
 	"github.com/DataMata2/agent-freeze/internal/procfs"
+	"github.com/DataMata2/agent-freeze/internal/prog"
 	"github.com/DataMata2/agent-freeze/internal/sessions"
 	"github.com/DataMata2/agent-freeze/internal/state"
 )
@@ -47,14 +48,9 @@ var afterReclaimRound func(round int)
 // fake /proc between passes.
 var afterMove func(cg string, pid int, err error)
 
-// Banner and SIGWINCH hooks; tests replace them so that no real terminal
-// is written and no real process is signalled.
-var (
-	ttyOf       = banner.TTY
-	showBanner  = banner.ShowFrozen
-	clearBanner = banner.ClearFrozen
-	sendWinch   = func(pid int) error { return syscall.Kill(pid, syscall.SIGWINCH) }
-)
+// ttyOf finds an agent's terminal; tests replace it (see shared.go for the
+// other banner hooks).
+var ttyOf = banner.TTY
 
 // move moves pid into cg and reports the call to afterMove.
 func (f *Freezer) move(cg string, pid int) error {
@@ -202,7 +198,7 @@ func (f *Freezer) housekeep() {
 func (f *Freezer) Freeze(g GroupView, forceSelf bool) Result {
 	r := Result{ID: g.ID, Key: g.Key, Name: g.Name}
 	if g.Self && !forceSelf {
-		r.Error = "refusing to freeze the agent that is running afz (use --force-self)"
+		r.Error = "refusing to freeze the agent that is running " + prog.Name + " (use --force-self)"
 		return r
 	}
 	if g.State == "frozen" {
@@ -448,30 +444,6 @@ func (f *Freezer) Thaw(g GroupView) Result {
 	r.RSSAfter, r.SwapAfter = f.measure(pids)
 	r.OK = true
 	return r
-}
-
-// bannerProc returns the process whose terminal shows the agent rooted at
-// root: root itself, or for a claude pty host its lowest-PID claude child
-// (the rule discover.Enrich uses). It returns nil if there is none.
-func bannerProc(procs map[int]*procfs.Process, root *procfs.Process) *procfs.Process {
-	if root == nil || !isPtyHost(root) {
-		return root
-	}
-	var best *procfs.Process
-	for _, p := range procs {
-		if p.PPID == root.PID && discover.AgentOf(p) == "claude" && (best == nil || p.PID < best.PID) {
-			best = p
-		}
-	}
-	return best
-}
-
-// isPtyHost reports whether p is a claude background pty host, matching
-// discover's rule.
-func isPtyHost(p *procfs.Process) bool {
-	return discover.AgentOf(p) == "claude" && slices.ContainsFunc(p.Args, func(a string) bool {
-		return a == "bg-pty-host" || a == "--bg-pty-host"
-	})
 }
 
 // showFrozen writes the freeze banner to the terminal of g's banner process

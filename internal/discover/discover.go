@@ -1,6 +1,4 @@
-//go:build linux
-
-// Package discover groups a /proc snapshot into coding-agent process groups.
+// Package discover groups a process snapshot into coding-agent process groups.
 package discover
 
 import (
@@ -434,7 +432,7 @@ func Enrich(groups []Group, procs map[int]*procfs.Process, infos map[int]session
 			continue
 		}
 		p := procs[pid]
-		if info.ProcStart != "" && info.ProcStart != strconv.FormatUint(p.StartTime, 10) {
+		if info.ProcStart != "" && !procfs.SameStart(p, info.ProcStart) {
 			continue
 		}
 		name := collapse(info.Name)

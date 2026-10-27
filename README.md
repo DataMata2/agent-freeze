@@ -4,14 +4,22 @@ Like a Fallout vault for your coding agents: `afz` puts idle Claude Code,
 Codex and friends into cryo so a game can have the RAM, then wakes them up
 exactly where they left off.
 
-`afz` lists every coding-agent process group on the machine, freezes the ones
-you pick with the cgroup v2 freezer, pushes their memory out to swap, and
-thaws them later. No root needed. A thawed agent continues from the exact
-point it stopped, even mid-turn.
+Too many Claude Code sessions open and your laptop starts to lag? Every
+session keeps its process, tool shells and MCP servers in memory, even while
+it sits idle. `afz` pauses the sessions you are not using and gives their RAM
+back to everything else, on Linux and macOS. On a 16 GB MacBook running eight
+Claude Code sessions, freezing the three idle ones gave back about 490 MB
+within a few minutes.
 
-Recognised agents: `claude`, `codex`, `gemini`, `opencode`, `aider`,
-`cursor-agent`, `amp`, also when run by `node`, `bun`, `deno` or `python`
-(by script name or a `node_modules/<agent>` path).
+`afz` lists every coding-agent process group on the machine, freezes the ones
+you pick (with the cgroup v2 freezer on Linux, with signals on macOS), gets
+their memory out of RAM, and thaws them later. No root needed. A thawed agent
+continues from the exact point it stopped, even mid-turn.
+
+Recognised agents: Claude Code (`claude`), OpenAI Codex CLI (`codex`), Gemini
+CLI (`gemini`), `opencode`, Aider (`aider`), Cursor CLI (`cursor-agent`) and
+Amp (`amp`), also when run by `node`, `bun`, `deno` or `python` (by script
+name or a `node_modules/<agent>` path).
 
 ## Install
 
@@ -26,15 +34,37 @@ a versioned build:
 go build -ldflags "-X github.com/DataMata2/agent-freeze/internal/cli.Version=v0.1.0" -o afz ./cmd/afz
 ```
 
+`go install` puts `afz` in `$(go env GOPATH)/bin` (usually `~/go/bin`); add
+that directory to your `PATH` if your shell cannot find it.
+
+### Pick your own name
+
+The command answers to whatever its file is called, in its help, its errors
+and the frozen banner. Rename it in place:
+
+```sh
+afz rename chill    # from now on: chill list, chill freeze --all, ...
+```
+
+It refuses a name that is already a command or a file. If `afz` is a
+symlink, the link is renamed and the program stays where it is. A later
+`go install` writes a new `afz` next to it; delete the old `chill` and rename
+again.
+
 ## Requirements
 
-- Linux with the cgroup v2 unified hierarchy at `/sys/fs/cgroup`
+Linux:
+
+- The cgroup v2 unified hierarchy at `/sys/fs/cgroup`
   (`afz` exits with `afz: cgroup v2 not available` otherwise).
 - A systemd user session: agents must run inside your delegated
   `user@<uid>.service` subtree (the normal case for terminals started from a
   desktop session), with the `memory` controller available.
 - Swap. Freezing works without it, but then no RAM is freed.
 - Kernel 5.19 or newer for `memory.reclaim`.
+
+macOS: nothing beyond a stock install. `afz` reads the process table from the
+kernel and uses the system's `ps` and `lsof`.
 
 ## Usage
 
@@ -75,6 +105,7 @@ afz freeze --all                 # freeze every agent except you and daemons
 afz freeze 540032 my-project     # freeze by ID, key or name substring
 afz thaw --all                   # thaw everything frozen
 afz status                       # frozen totals, available RAM, free swap
+afz rename chill                 # call the command chill from now on
 afz version
 afz help
 ```
@@ -106,6 +137,8 @@ shells, MCP servers, and so on). Names come from Claude Code's session files
 (`~/.claude/sessions`), from `-n`/`--name`, or from the session ID, falling
 back to `<agent> @ <basename of cwd>`. Daemons are named like `claude daemon`
 or `claude bg-spare`.
+
+### On Linux
 
 **Freeze.**
 
@@ -159,6 +192,38 @@ never block: if the terminal is not accepting output, the banner is skipped.
 A banner problem only adds a `banner: ...` warning; the freeze or thaw still
 succeeds. Set `AFZ_NO_BANNER=1` to turn the banner (and the `SIGWINCH`) off.
 
+### On macOS
+
+macOS has no cgroup freezer and no way to push another process's memory out
+on demand, so a freeze works with signals:
+
+1. **Freeze** sends `SIGSTOP` to every process of the group, re-scanning for
+   processes spawned meanwhile, and waits until all of them are stopped. If
+   the agent is the foreground job of an interactive shell (a Terminal,
+   iTerm2 or tmux tab), that shell is stopped first: a stopped job would
+   make the shell print `suspended` and take the terminal back, but a
+   stopped shell cannot notice. So the tab behaves as on Linux and never
+   needs `fg`. A job started with `&` leaves its shell running, since that
+   shell is at the prompt.
+2. **Memory** is not reclaimed at once. The stopped processes never touch
+   their pages again, so macOS compresses or swaps them out as soon as other
+   apps need RAM. `freed` (in `afz status`, the TUI header and
+   `afz list --json`) is the RSS the group lost since the freeze, so it is
+   small right after a freeze and grows from there.
+3. **Thaw** sends `SIGCONT` to the helpers, then the agent, then the shell,
+   so the shell runs again only once its job runs. The banner works as on
+   Linux.
+
+Every stopped PID is recorded with its start time in the state file before it
+is signalled. Each run of `afz` ends the freezes that are over: if the agent
+exited while frozen (an editor killed it), its stopped helpers and its shell
+are continued; if it was continued by hand, the entry is dropped. Only groups
+`afz` froze count as frozen, so an agent stopped with Ctrl+Z stays `running`.
+
+`SWAP` is always `0B`: macOS does not report swap per process. `swap free` is
+the free swap plus the free space of the swap volume (`/System/Volumes/VM`),
+because macOS creates swap files as it needs them.
+
 ## What happens if I type into a frozen session
 
 - **Keys are queued.** The terminal keeps accepting input, but the frozen
@@ -185,7 +250,8 @@ succeeds. Set `AFZ_NO_BANNER=1` to turn the banner (and the `SIGWINCH`) off.
   unless `--yes` is given.
 - **Delegation.** Processes outside your `user@<uid>.service` subtree cannot be
   moved without root; such groups fail with
-  `not in user-delegated cgroup`.
+  `not in user-delegated cgroup`. On macOS a group with another user's
+  processes fails with `process <pid> belongs to another user`.
 
 ## Caveats
 
@@ -195,12 +261,12 @@ succeeds. Set `AFZ_NO_BANNER=1` to turn the banner (and the `SIGWINCH`) off.
   about: the CLI adds a `was busy` warning to the result, and the TUI asks for
   confirmation first. An API request in flight while frozen may time out and
   be retried by the agent after thaw.
-- **zram vs disk swap.** zram keeps the "swapped" pages compressed in RAM, so
-  it frees only part of the memory. A swap file or partition on disk frees
-  the most.
-- **Terminal paging.** Reclaim from the origin scope works on the whole
-  terminal scope, so it can page out a little of the terminal emulator too.
-  It pages back in as soon as you use that window.
+- **zram vs disk swap (Linux).** zram keeps the "swapped" pages compressed in
+  RAM, so it frees only part of the memory. A swap file or partition on disk
+  frees the most.
+- **Terminal paging (Linux).** Reclaim from the origin scope works on the
+  whole terminal scope, so it can page out a little of the terminal emulator
+  too. It pages back in as soon as you use that window.
 
 ## License
 
