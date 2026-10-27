@@ -33,6 +33,36 @@ func DefaultDir() string {
 	return filepath.Join(os.Getenv("HOME"), ".claude", "sessions")
 }
 
+// Dirs returns primary followed by the sessions dir of every other Claude
+// config dir beside primary's (~/.claude-<name>, as a CLAUDE_CONFIG_DIR alias
+// for a second account makes), so those sessions get their names too.
+func Dirs(primary string) []string {
+	dirs := []string{primary}
+	home := filepath.Dir(filepath.Dir(primary))
+	more, _ := filepath.Glob(filepath.Join(home, ".claude*", "sessions"))
+	for _, d := range more {
+		if d != primary {
+			dirs = append(dirs, d)
+		}
+	}
+	return dirs
+}
+
+// LoadAll merges Load over dirs. When two dirs hold the same PID, the earlier
+// dir wins; a dir that cannot be read is skipped.
+func LoadAll(dirs []string) map[int]Info {
+	out := make(map[int]Info)
+	for _, dir := range dirs {
+		infos, _ := Load(dir)
+		for pid, info := range infos {
+			if _, taken := out[pid]; !taken {
+				out[pid] = info
+			}
+		}
+	}
+	return out
+}
+
 // Load reads every "<digits>.json" regular file in dir, keyed by the number
 // in its name. Unreadable or unparsable files are skipped. A missing dir
 // yields an empty map and no error.

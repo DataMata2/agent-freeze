@@ -102,7 +102,7 @@ func (f *Freezer) List() ([]GroupView, error) {
 	}
 	groups := discover.Groups(procs, f.SelfPID)
 	if f.SessionsDir != "" {
-		infos, _ := sessions.Load(f.SessionsDir)
+		infos := sessions.LoadAll(sessions.Dirs(f.SessionsDir))
 		discover.Enrich(groups, procs, infos)
 	}
 

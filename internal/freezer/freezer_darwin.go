@@ -91,7 +91,7 @@ func (f *Freezer) groups() (map[int]*procfs.Process, []discover.Group, error) {
 	}
 	groups := discover.Groups(procs, f.SelfPID)
 	if f.SessionsDir != "" {
-		infos, _ := sessions.Load(f.SessionsDir)
+		infos := sessions.LoadAll(sessions.Dirs(f.SessionsDir))
 		discover.Enrich(groups, procs, infos)
 	}
 	return procs, groups, nil
