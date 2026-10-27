@@ -22,6 +22,8 @@ jobs:
         run: go vet ./...
       - name: go test
         run: go test ./...
+      - name: contrib tests
+        run: python3 -m unittest discover -s contrib/session-title -p 'test_*.py'
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v9
         with:
