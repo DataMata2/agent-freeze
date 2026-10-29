@@ -44,6 +44,42 @@ func TestInstallWritesTheUnitAndStartsIt(t *testing.T) {
 	}
 }
 
+func TestInstallPassesClaudeConfigDirAndNoBannerFromItsEnvironment(t *testing.T) {
+	_, unit := fakeCommands(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", "/home/u/.claude-work")
+	t.Setenv("AFZ_NO_BANNER", "1")
+	if err := Install("/usr/local/bin/afz"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(unit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{`Environment="CLAUDE_CONFIG_DIR=/home/u/.claude-work"`, `Environment="AFZ_NO_BANNER=1"`} {
+		if !strings.Contains(string(raw), want) {
+			t.Errorf("unit lacks %q:\n%s", want, raw)
+		}
+	}
+}
+
+func TestInstallLeavesUnsetVariablesOutOfTheUnit(t *testing.T) {
+	_, unit := fakeCommands(t)
+	t.Setenv("CLAUDE_CONFIG_DIR", "")
+	t.Setenv("AFZ_NO_BANNER", "")
+	os.Unsetenv("CLAUDE_CONFIG_DIR")
+	os.Unsetenv("AFZ_NO_BANNER")
+	if err := Install("/usr/local/bin/afz"); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(unit)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(string(raw), "CLAUDE_CONFIG_DIR") || strings.Contains(string(raw), "AFZ_NO_BANNER") {
+		t.Fatalf("unit passes an unset variable:\n%s", raw)
+	}
+}
+
 func TestUninstallStopsAndRemovesTheUnit(t *testing.T) {
 	calls, unit := fakeCommands(t)
 	if err := Install("/usr/local/bin/afz"); err != nil {

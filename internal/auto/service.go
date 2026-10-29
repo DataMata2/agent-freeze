@@ -67,15 +67,21 @@ func launchdPlist(exe, errLog, stateHome string) string {
 `
 }
 
-func systemdUnit(exe, stateHome string) string {
+// systemdUnit is the user unit; env holds extra "NAME=value" settings.
+// Environment= expands % specifiers but not $, so only % is doubled there.
+func systemdUnit(exe, stateHome string, env ...string) string {
 	quote := func(s string) string { return strings.ReplaceAll(strconv.Quote(s), "%", "%%") }
+	var envLines strings.Builder
+	for _, kv := range append([]string{"XDG_STATE_HOME=" + stateHome}, env...) {
+		envLines.WriteString("Environment=" + quote(kv) + "\n")
+	}
 	return `[Unit]
 Description=agent-freeze auto mode
 
 [Service]
 ExecStart=` + strings.ReplaceAll(quote(exe), "$", "$$") + ` auto run
-Environment=` + quote("XDG_STATE_HOME="+stateHome) + `
-Restart=on-failure
+` + envLines.String() + `Restart=on-failure
+RestartSec=5
 
 [Install]
 WantedBy=default.target

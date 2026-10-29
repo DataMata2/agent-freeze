@@ -27,7 +27,19 @@ func TestLaunchdPlistRunsAutoRunAtLoginAndEscapesThePath(t *testing.T) {
 func TestSystemdUnitRunsAutoRun(t *testing.T) {
 	got := systemdUnit("/home/u/my bin/afz", "/home/u/100%")
 	for _, want := range []string{`ExecStart="/home/u/my bin/afz" auto run`, `Environment="XDG_STATE_HOME=/home/u/100%%"`,
-		"Restart=on-failure", "WantedBy=default.target"} {
+		"Restart=on-failure", "RestartSec=5", "WantedBy=default.target"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("unit lacks %q:\n%s", want, got)
+		}
+	}
+	if strings.Count(got, "Environment=") != 1 {
+		t.Errorf("unit has extra Environment lines:\n%s", got)
+	}
+}
+
+func TestSystemdUnitPassesExtraEnvironmentQuoted(t *testing.T) {
+	got := systemdUnit("/bin/afz", "/s", "CLAUDE_CONFIG_DIR=/home/u/my $dir/100%", "AFZ_NO_BANNER=1")
+	for _, want := range []string{`Environment="CLAUDE_CONFIG_DIR=/home/u/my $dir/100%%"`, `Environment="AFZ_NO_BANNER=1"`} {
 		if !strings.Contains(got, want) {
 			t.Errorf("unit lacks %q:\n%s", want, got)
 		}

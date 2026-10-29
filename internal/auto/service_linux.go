@@ -27,7 +27,7 @@ func unitPath() string {
 
 // Install writes the systemd user unit that runs "exe auto run" at login and (re)starts it.
 func Install(exe string) error {
-	if err := writeServiceFile(unitPath(), systemdUnit(exe, stateHome())); err != nil {
+	if err := writeServiceFile(unitPath(), systemdUnit(exe, stateHome(), unitEnv()...)); err != nil {
 		return err
 	}
 	for _, args := range [][]string{{"daemon-reload"}, {"enable", unitName}, {"restart", unitName}} {
@@ -36,6 +36,19 @@ func Install(exe string) error {
 		}
 	}
 	return nil
+}
+
+// unitEnv is the environment of this process that the service needs too:
+// the Claude Code config dir it reads sessions from, and no banners.
+func unitEnv() []string {
+	var env []string
+	if d := os.Getenv("CLAUDE_CONFIG_DIR"); d != "" {
+		env = append(env, "CLAUDE_CONFIG_DIR="+d)
+	}
+	if os.Getenv("AFZ_NO_BANNER") == "1" {
+		env = append(env, "AFZ_NO_BANNER=1")
+	}
+	return env
 }
 
 // Uninstall stops the systemd user unit and removes it. Not installed is fine.
