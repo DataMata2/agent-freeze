@@ -25,14 +25,16 @@ type Focus struct {
 func Pick(groups []freezer.GroupView, r pressure.Reading, cpu map[string]float64, cfg Config,
 	focus Focus, now time.Time) (freezer.GroupView, string, bool) {
 	var cands []freezer.GroupView
+	idle := make(map[string]time.Duration, len(groups)) // by key, so the sort stats nothing
 	for _, g := range groups {
-		if unused(g, cfg, focus, now) {
+		if d, ok := unusedFor(g, cfg, focus, now); ok {
 			cands = append(cands, g)
+			idle[g.Key] = d
 		}
 	}
 	if memoryShort(cfg, r.Memory) && len(cands) > 0 {
 		slices.SortStableFunc(cands, func(a, b freezer.GroupView) int {
-			if c := cmp.Compare(idleFor(b, focus, now), idleFor(a, focus, now)); c != 0 {
+			if c := cmp.Compare(idle[b.Key], idle[a.Key]); c != 0 {
 				return c
 			}
 			return cmp.Compare(b.RSS, a.RSS)
@@ -65,13 +67,19 @@ func cpuShort(cfg Config, loadPerCPU float64) bool {
 }
 
 func unused(g freezer.GroupView, cfg Config, focus Focus, now time.Time) bool {
+	_, ok := unusedFor(g, cfg, focus, now)
+	return ok
+}
+
+// unusedFor reports whether g may be frozen now, and how long it has been unused.
+func unusedFor(g freezer.GroupView, cfg Config, focus Focus, now time.Time) (time.Duration, bool) {
 	switch {
 	case g.State != "running", !g.Delegated, g.Self, g.Daemon, cfg.Pinned(g):
-		return false
+		return 0, false
 	case g.Status != "idle": // not "shell" (a background task runs) or "waiting" (blocked on you)
-		return false
+		return 0, false
 	case focus.TTY != "" && g.TTY == focus.TTY:
-		return false
+		return 0, false
 	}
 	need := cfg.IdleMinutes
 	// Without tab detection, a session being typed into must still never be frozen.
@@ -79,7 +87,8 @@ func unused(g freezer.GroupView, cfg Config, focus Focus, now time.Time) bool {
 	if focus.TTY == FocusUnknown && awayWaitApplies {
 		need = max(need, cfg.AwayMinutes)
 	}
-	return idleFor(g, focus, now).Minutes() >= need
+	d := idleFor(g, focus, now)
+	return d, d.Minutes() >= need
 }
 
 // ttyActivity reports when tty last had typed input read from it; tests replace it.

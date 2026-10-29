@@ -141,6 +141,28 @@ func withTTYReads(t *testing.T, reads map[string]time.Time) {
 	t.Cleanup(func() { ttyActivity = old })
 }
 
+func TestPickStatsEachTerminalOnce(t *testing.T) {
+	stats := map[string]int{}
+	old := ttyActivity
+	ttyActivity = func(tty string) (time.Time, bool) {
+		stats[tty]++
+		return time.Time{}, false
+	}
+	t.Cleanup(func() { ttyActivity = old })
+	var groups []freezer.GroupView
+	for i, n := range []string{"a", "b", "c", "d", "e"} {
+		groups = append(groups, idleGroup(n, time.Duration(20+i)*time.Minute, gib))
+	}
+	if got := pickName(t, groups, memWarn, nil, Defaults(), ""); got != "e" {
+		t.Fatalf("Pick = %q, want e, unused longest", got)
+	}
+	for _, g := range groups {
+		if stats[g.TTY] != 1 {
+			t.Errorf("%s stat %d times, want once", g.TTY, stats[g.TTY])
+		}
+	}
+}
+
 func TestPickWithUnknownFocusWaitsAtLeastFiveMinutes(t *testing.T) {
 	withAwayWait(t, true)
 	cfg := Defaults()
