@@ -48,7 +48,7 @@ A `list` query keeps groups whose name, cwd, agent or `id` contains it
 `daemon`, `self`, `status` (`busy` | `idle` | `shell`; omitted if unknown),
 `status_since` (optional, RFC 3339: when `status` last changed), `tty`
 (optional, the agent's terminal), `state` (`running` | `frozen` | `partial`), `frozen_at` (optional, RFC 3339),
-`freed_bytes`, `delegated`.
+`frozen_by` (optional, `"auto"` when auto mode froze it), `freed_bytes`, `delegated`.
 
 **Result:** `id`, `key`, `name`, `ok`, `error` (optional), `warning`
 (optional), `rss_before`, `rss_after`, `swap_after`. Sizes are bytes.

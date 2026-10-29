@@ -134,6 +134,7 @@ func (f *Freezer) List() ([]GroupView, error) {
 				at := e.FrozenAt
 				v.FrozenAt = &at
 			}
+			v.FrozenBy = e.By
 			if e.RSSBefore > g.RSS {
 				v.Freed = e.RSSBefore - g.RSS
 			}
@@ -235,9 +236,15 @@ func (f *Freezer) resume(procs map[int]*procfs.Process, e state.Entry) []string 
 	return warnings
 }
 
-// Freeze stops g's shell, if g is its foreground job, and then every member
-// of g.
+// Freeze freezes g manually; see FreezeAs.
 func (f *Freezer) Freeze(g GroupView, forceSelf bool) Result {
+	return f.FreezeAs(g, forceSelf, "")
+}
+
+// FreezeAs stops g's shell, if g is its foreground job, and then every
+// member of g, recording by ("auto" or "" for manual) as who froze it (see
+// owner and claimManual).
+func (f *Freezer) FreezeAs(g GroupView, forceSelf bool, by string) Result {
 	r := Result{ID: g.ID, Key: g.Key, Name: g.Name}
 	if g.Self && !forceSelf {
 		r.Error = "refusing to freeze the agent that is running " + prog.Name + " (use --force-self)"
@@ -245,7 +252,16 @@ func (f *Freezer) Freeze(g GroupView, forceSelf bool) Result {
 	}
 	if g.State == "frozen" {
 		r.OK, r.Warning = true, "already frozen"
+		if by == "" {
+			if err := claimManual(f.Store, g.Key); err != nil {
+				r.Warning += "; state: " + err.Error()
+			}
+		}
 		return r
+	}
+	// The records below replace the entry, so the owner is settled first.
+	if ents, err := f.Store.Load(); err == nil {
+		by = owner(ents[g.Key], by)
 	}
 	procs, err := snapshot()
 	if err != nil {
@@ -267,7 +283,7 @@ func (f *Freezer) Freeze(g GroupView, forceSelf bool) Result {
 	}
 
 	rec := state.Entry{
-		Key: g.Key, Name: g.Name, Agent: g.Agent, Cwd: g.Cwd, RootPID: g.RootPID,
+		Key: g.Key, Name: g.Name, Agent: g.Agent, Cwd: g.Cwd, RootPID: g.RootPID, By: by,
 		Starts: map[int]uint64{g.RootPID: root.StartTime},
 	}
 	procs, err = f.stop(g, root, procs, &rec)

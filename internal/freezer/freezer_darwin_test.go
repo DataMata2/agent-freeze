@@ -576,3 +576,37 @@ func TestDarwinAgentExitsDuringFreeze(t *testing.T) {
 		t.Fatalf("result %+v, states %s, entries %v", r, w.states(102, 104, 105), entries(t, f))
 	}
 }
+
+func TestDarwinFreezeAsRecordsBy(t *testing.T) {
+	w := newWorld()
+	f := newFreezer(t, w)
+	if r := f.FreezeAs(view(t, f, 103), false, "auto"); !r.OK {
+		t.Fatalf("FreezeAs = %+v", r)
+	}
+	v := view(t, f, 103)
+	if v.State != "frozen" || v.FrozenBy != "auto" || entries(t, f)[v.Key].By != "auto" {
+		t.Fatalf("after auto freeze: %+v", v)
+	}
+	// A manual freeze of the auto-frozen group takes it over.
+	if r := f.Freeze(v, false); !r.OK || r.Warning != "already frozen" {
+		t.Fatalf("Freeze = %+v", r)
+	}
+	if v = view(t, f, 103); v.FrozenBy != "" {
+		t.Fatalf("FrozenBy %q after manual freeze", v.FrozenBy)
+	}
+	if r := f.Thaw(v); !r.OK {
+		t.Fatalf("Thaw = %+v", r)
+	}
+	if _, ok := entries(t, f)[v.Key]; ok {
+		t.Fatal("state entry not deleted")
+	}
+}
+
+func TestDarwinFreezeIsManual(t *testing.T) {
+	w := newWorld()
+	f := newFreezer(t, w)
+	f.Freeze(view(t, f, 103), false)
+	if v := view(t, f, 103); v.State != "frozen" || v.FrozenBy != "" {
+		t.Fatalf("after freeze: %+v", v)
+	}
+}

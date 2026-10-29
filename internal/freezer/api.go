@@ -13,6 +13,7 @@ type GroupView struct {
 	discover.Group
 	State     string     `json:"state"` // "running" | "frozen" | "partial"
 	FrozenAt  *time.Time `json:"frozen_at,omitempty"`
+	FrozenBy  string     `json:"frozen_by,omitempty"` // state.Entry.By of a frozen or partial group
 	Freed     uint64     `json:"freed_bytes"`
 	Delegated bool       `json:"delegated"`
 }

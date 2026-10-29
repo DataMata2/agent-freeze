@@ -41,7 +41,7 @@ type Group struct {
 	Status    string `json:"status,omitempty"` // "busy" | "idle" | "shell" | "" (unknown)
 	// StatusSince is when Status last changed; nil if unknown.
 	StatusSince *time.Time `json:"status_since,omitempty"`
-	TTY         string     `json:"tty,omitempty"` // "" if none, and always on Linux
+	TTY         string     `json:"tty,omitempty"` // "" if none; on Linux freezer.List fills it
 }
 
 // AgentOf returns the agent name p runs, or "" if it is not an agent.

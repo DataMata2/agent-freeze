@@ -141,7 +141,11 @@ func (f *Freezer) List() ([]GroupView, error) {
 					v.FrozenAt = &at
 				}
 				v.Freed = e.Freed
+				v.FrozenBy = e.By
 			}
+		}
+		if p := bannerProc(procs, procs[g.RootPID]); p != nil {
+			v.TTY = ttyOf(f.Proc, p.PID)
 		}
 		views = append(views, v)
 	}
@@ -193,9 +197,15 @@ func (f *Freezer) housekeep() {
 	})
 }
 
-// Freeze moves g's members into its own cgroup, freezes it and reclaims the
-// members' memory.
+// Freeze freezes g manually; see FreezeAs.
 func (f *Freezer) Freeze(g GroupView, forceSelf bool) Result {
+	return f.FreezeAs(g, forceSelf, "")
+}
+
+// FreezeAs moves g's members into its own cgroup, freezes it and reclaims
+// the members' memory, recording by ("auto" or "" for manual) as who froze
+// it (see owner and claimManual).
+func (f *Freezer) FreezeAs(g GroupView, forceSelf bool, by string) Result {
 	r := Result{ID: g.ID, Key: g.Key, Name: g.Name}
 	if g.Self && !forceSelf {
 		r.Error = "refusing to freeze the agent that is running " + prog.Name + " (use --force-self)"
@@ -203,6 +213,11 @@ func (f *Freezer) Freeze(g GroupView, forceSelf bool) Result {
 	}
 	if g.State == "frozen" {
 		r.OK, r.Warning = true, "already frozen"
+		if by == "" {
+			if err := claimManual(f.Store, g.Key); err != nil {
+				r.Warning += "; state: " + err.Error()
+			}
+		}
 		return r
 	}
 
@@ -307,6 +322,7 @@ func (f *Freezer) Freeze(g GroupView, forceSelf bool) Result {
 	err = f.Store.Update(func(m map[string]state.Entry) error {
 		e := m[g.Key]
 		e.Key, e.Name, e.Agent, e.Cwd, e.Cgroup = g.Key, g.Name, g.Agent, g.Cwd, cg
+		e.By = owner(e, by)
 		e.FrozenAt, e.RSSBefore, e.Freed = frozenAt, r.RSSBefore, freed
 		m[g.Key] = e
 		return nil
