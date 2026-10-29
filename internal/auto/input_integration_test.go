@@ -88,6 +88,15 @@ func TestTTYReadAtIsWhenTheAgentLastReadInput(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer unix.Close(slave)
+	// Backdate the atime of this test's own pty, so only the read below can bring it forward.
+	old := time.Now().Add(-time.Hour)
+	ts := []unix.Timespec{unix.NsecToTimespec(old.UnixNano()), {Nsec: unix.UTIME_OMIT}}
+	if err := unix.UtimesNano(slavePath, ts); err != nil {
+		t.Skipf("cannot set the atime of %s: %v", slavePath, err)
+	}
+	if at, ok := ttyReadAt(slavePath); !ok || time.Since(at) < 50*time.Minute {
+		t.Fatalf("ttyReadAt before the read = %v, %v; want about an hour ago", at, ok)
+	}
 	if _, err := unix.Write(master, []byte("x")); err != nil {
 		t.Fatal(err)
 	}

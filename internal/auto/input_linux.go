@@ -62,9 +62,10 @@ func ttyPath(p string) bool { return banner.IsTTYPath(p) && p != ptmxPath }
 // does not apply.
 const awayWaitDefault = false
 
-// ttyReadAt returns when the agent last read typed input from tty: the
-// kernel moves a pts's atime on each read (in 8-second steps); output moves
-// only mtime. It only stats the path, never opens it.
+// ttyReadAt returns when the agent last read input from tty: the kernel
+// moves a pts's atime on each read (in 8-second steps); output moves only
+// mtime. Any input the agent reads counts, typing as well as terminal
+// replies and focus reports. It only stats the path, never opens it.
 func ttyReadAt(tty string) (time.Time, bool) {
 	if !ttyPath(tty) {
 		return time.Time{}, false

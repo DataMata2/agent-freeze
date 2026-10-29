@@ -91,7 +91,7 @@ func unusedFor(g freezer.GroupView, cfg Config, focus Focus, now time.Time) (tim
 	return d, d.Minutes() >= need
 }
 
-// ttyActivity reports when tty last had typed input read from it; tests replace it.
+// ttyActivity reports when the agent last read input from tty; tests replace it.
 var ttyActivity = ttyReadAt
 
 // awayWaitApplies is whether AwayMinutes applies while the selected tab is unknown.
