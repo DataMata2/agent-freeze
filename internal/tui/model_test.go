@@ -484,13 +484,17 @@ func TestViewContainsRows(t *testing.T) {
 func TestViewShowsStatus(t *testing.T) {
 	api := newFake()
 	api.groups[0].Status = "busy"
+	api.groups[1].Status = "waiting"
 	api.groups[3].Status = ""
 	m := loaded(t, api)
 	lines := strings.Split(plainView(m), "\n")
-	var alpha, delta string
+	var alpha, beta, delta string
 	for _, l := range lines {
 		if strings.Contains(l, "alpha") {
 			alpha = l
+		}
+		if strings.Contains(l, "beta") {
+			beta = l
 		}
 		if strings.Contains(l, "delta") {
 			delta = l
@@ -498,6 +502,9 @@ func TestViewShowsStatus(t *testing.T) {
 	}
 	if !strings.Contains(alpha, "busy") {
 		t.Errorf("alpha row lacks busy status: %q", alpha)
+	}
+	if !strings.Contains(beta, " waiting ") {
+		t.Errorf("beta row lacks the whole waiting status: %q", beta)
 	}
 	if !strings.Contains(delta, " - ") {
 		t.Errorf("delta row lacks '-' status: %q", delta)

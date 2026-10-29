@@ -17,7 +17,7 @@ const defaultWidth = 100
 const (
 	prefixW = 6 // "> [x] "
 	stateW  = 7 // "running" / "partial"
-	statusW = 6 // "busy" / "idle" / "shell" / "-"
+	statusW = 7 // "busy" / "idle" / "shell" / "waiting" / "-"
 	ramW    = 6
 	swapW   = 6
 	procsW  = 5
