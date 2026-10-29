@@ -59,6 +59,10 @@ func (f *fakeAPI) Freeze(g freezer.GroupView, forceSelf bool) freezer.Result {
 	return freezer.Result{ID: g.ID, Key: g.Key, Name: g.Name, OK: true, RSSBefore: g.RSS, RSSAfter: g.RSS / 4, SwapAfter: g.RSS - g.RSS/4}
 }
 
+func (f *fakeAPI) FreezeAs(g freezer.GroupView, forceSelf bool, _ string) freezer.Result {
+	return f.Freeze(g, forceSelf)
+}
+
 func (f *fakeAPI) Thaw(g freezer.GroupView) freezer.Result {
 	f.thawed = append(f.thawed, g.ID)
 	return freezer.Result{ID: g.ID, Key: g.Key, Name: g.Name, OK: true, RSSBefore: g.RSS, RSSAfter: g.RSS}
@@ -108,7 +112,7 @@ func newFake(t *testing.T) *fakeAPI {
 	}
 }
 
-func run(api freezer.API, args ...string) (code int, stdout, stderr string) {
+func run(api API, args ...string) (code int, stdout, stderr string) {
 	var out, errb bytes.Buffer
 	code = Run(args, api, &out, &errb)
 	return code, out.String(), errb.String()

@@ -13,7 +13,6 @@ import (
 	"time"
 
 	"github.com/DataMata2/agent-freeze/internal/auto"
-	"github.com/DataMata2/agent-freeze/internal/freezer"
 	"github.com/DataMata2/agent-freeze/internal/pressure"
 	"github.com/DataMata2/agent-freeze/internal/prog"
 )
@@ -27,7 +26,7 @@ var (
 	serviceRunning   = auto.Running
 )
 
-func autoCmd(args []string, api freezer.API, o *output) error {
+func autoCmd(args []string, api auto.API, o *output) error {
 	sub := "status"
 	if len(args) > 0 {
 		sub, args = args[0], args[1:]
@@ -107,11 +106,7 @@ func waitForService() {
 	}
 }
 
-func runAuto(api freezer.API) error {
-	aapi, ok := api.(auto.API)
-	if !ok {
-		return errors.New("auto mode needs a freezer that records who froze a group")
-	}
+func runAuto(api auto.API) error {
 	// Locked before signals are caught, so Ctrl+C still ends a loop that is waiting.
 	lock, err := auto.LockRun(func() {
 		fmt.Fprintf(os.Stderr, "%s auto: waiting, auto mode already runs elsewhere (stop it with '%s auto off')\n", prog.Name, prog.Name)
@@ -124,7 +119,7 @@ func runAuto(api freezer.API) error {
 	defer stop()
 	var sampler pressure.Sampler
 	r := auto.Runner{
-		API:    aapi,
+		API:    api,
 		Read:   pressure.Read,
 		CPU:    sampler.Sample,
 		Notify: auto.Notify,

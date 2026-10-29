@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/DataMata2/agent-freeze/internal/auto"
 	"github.com/DataMata2/agent-freeze/internal/discover"
 	"github.com/DataMata2/agent-freeze/internal/freezer"
 	"github.com/DataMata2/agent-freeze/internal/human"
@@ -77,9 +78,15 @@ func (e usageError) Error() string { return e.msg }
 
 func usagef(format string, a ...any) error { return usageError{fmt.Sprintf(format, a...)} }
 
+// API is what the commands need: the freezer surface plus auto mode's FreezeAs.
+type API interface {
+	freezer.API
+	auto.API
+}
+
 // Run executes afz with args (excluding the program name) and returns the
 // process exit code: 0 success, 1 operation failure, 2 usage error.
-func Run(args []string, api freezer.API, stdout, stderr io.Writer) int {
+func Run(args []string, api API, stdout, stderr io.Writer) int {
 	o := &output{stdout: stdout, stderr: stderr, json: slices.Contains(args, "--json")}
 	err := dispatch(args, api, o)
 	if err == nil {
@@ -97,7 +104,7 @@ func Run(args []string, api freezer.API, stdout, stderr io.Writer) int {
 	return 1
 }
 
-func dispatch(args []string, api freezer.API, o *output) error {
+func dispatch(args []string, api API, o *output) error {
 	if len(args) == 0 {
 		return usagef("missing command")
 	}

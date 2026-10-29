@@ -360,8 +360,8 @@ func TestCheckSkipsAGroupWithoutEnoughSwapAndBacksOff(t *testing.T) {
 		t.Fatalf("froze %v without enough free swap", api.froze)
 	}
 	want := "not enough free swap: need " + human.Bytes(gib) + ", have " + human.Bytes(512<<20)
-	if len(rec.events) != 1 || rec.events[0].Action != "skipped" || rec.events[0].Reason != want || len(rec.notices) != 0 {
-		t.Fatalf("events %+v notices %v, want one skipped event %q", rec.events, rec.notices, want)
+	if len(rec.events) != 1 || rec.events[0].Action != "skipped" || rec.events[0].Reason != want {
+		t.Fatalf("events %+v, want one skipped event %q", rec.events, want)
 	}
 	clock = now.Add(31 * time.Minute)
 	if err := run.Check(autoCfg(), noFocus()); err != nil {
@@ -462,5 +462,54 @@ func TestThawFocusedLeavesAManuallyFrozenGroupFrozen(t *testing.T) {
 	}
 	if len(api.thawed) != 0 || len(rec.events) != 0 {
 		t.Fatalf("thawed %v, events %+v, want a manual freeze left alone", api.thawed, rec.events)
+	}
+}
+
+func TestCheckInAFreshRunnerWaitsOutTheCooldownOfAnEarlierAutoFreeze(t *testing.T) {
+	for _, tc := range []struct {
+		ago  time.Duration
+		by   string
+		want int
+	}{
+		{10 * time.Second, "auto", 0}, // a restarted service must not freeze again at once
+		{5 * time.Minute, "auto", 1},
+		{10 * time.Second, "", 1}, // a manual freeze starts no cooldown
+	} {
+		at := now.Add(-tc.ago)
+		earlier := idleGroup("earlier", time.Hour, gib)
+		earlier.State, earlier.FrozenBy, earlier.FrozenAt = "frozen", tc.by, &at
+		api := &fakeAPI{groups: []freezer.GroupView{earlier, idleGroup("next", time.Hour, gib)}}
+		rec := &recorder{}
+		cfg := autoCfg()
+		cfg.IntervalSeconds = 30
+		if err := newRunner(api, memWarn, rec).Check(cfg, noFocus()); err != nil {
+			t.Fatal(err)
+		}
+		if len(api.froze) != tc.want || len(rec.events) != tc.want {
+			t.Errorf("frozen by %q %v ago: froze %v, events %+v, want %d freezes", tc.by, tc.ago, api.froze, rec.events, tc.want)
+		}
+	}
+}
+
+func TestCheckNotifiesASkippedFreeze(t *testing.T) {
+	api := &fakeAPI{groups: []freezer.GroupView{idleGroup("big", time.Hour, gib)}, swapFree: 512 << 20}
+	rec := &recorder{}
+	run := newRunner(api, memWarn, rec)
+	clock := now
+	run.Now = func() time.Time { return clock }
+	for range 3 {
+		if err := run.Check(autoCfg(), noFocus()); err != nil {
+			t.Fatal(err)
+		}
+		clock = clock.Add(30 * time.Second)
+	}
+	if len(rec.notices) != 1 || !strings.Contains(rec.notices[0], "not enough free swap") {
+		t.Fatalf("notices %q, want one about free swap", rec.notices)
+	}
+	cfg := autoCfg()
+	cfg.Notify = false
+	quiet := &recorder{}
+	if err := newRunner(api, memWarn, quiet).Check(cfg, noFocus()); err != nil || len(quiet.notices) != 0 {
+		t.Fatalf("err=%v notices %q with notifications off", err, quiet.notices)
 	}
 }

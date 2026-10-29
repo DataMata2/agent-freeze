@@ -62,15 +62,15 @@ func (r *Runner) Check(cfg Config, focus Focus) error {
 	}
 	perPID := r.CPU() // every check, so Linux deltas cover one interval
 	now := r.Now()
-	if r.coolingDown(cfg, now) {
-		return nil
-	}
 	if !memoryShort(cfg, reading.Memory) && !cpuShort(cfg, reading.LoadPerCPU) {
 		return nil
 	}
 	groups, err := r.API.List()
 	if err != nil {
 		return err
+	}
+	if r.coolingDown(cfg, groups, now) {
+		return nil
 	}
 	groups = slices.DeleteFunc(groups, func(g freezer.GroupView) bool {
 		at, ok := r.backoff[g.Key]
@@ -97,8 +97,12 @@ func (r *Runner) Check(cfg Config, focus Focus) error {
 	}
 	if st.SwapFree < g.RSS {
 		r.backOff(g.Key, now)
-		r.Log(Event{Time: now, Action: "skipped", Name: g.Name, RSS: g.RSS,
-			Reason: fmt.Sprintf("not enough free swap: need %s, have %s", human.Bytes(g.RSS), human.Bytes(st.SwapFree))})
+		ev := Event{Time: now, Action: "skipped", Name: g.Name, RSS: g.RSS,
+			Reason: fmt.Sprintf("not enough free swap: need %s, have %s", human.Bytes(g.RSS), human.Bytes(st.SwapFree))}
+		if cfg.Notify {
+			r.Notify(prog.Name, ev.String())
+		}
+		r.Log(ev)
 		return nil
 	}
 	ev := Event{Time: now, Action: "froze", Name: g.Name, Reason: reason, RSS: g.RSS}
@@ -115,10 +119,17 @@ func (r *Runner) Check(cfg Config, focus Focus) error {
 	return nil
 }
 
-// coolingDown reports whether the last freeze is too recent to judge pressure again.
-func (r *Runner) coolingDown(cfg Config, now time.Time) bool {
+// coolingDown reports whether the last auto freeze is too recent to judge
+// pressure again. The freeze times in groups cover one made before a restart.
+func (r *Runner) coolingDown(cfg Config, groups []freezer.GroupView, now time.Time) bool {
+	last := r.frozeAt
+	for _, g := range groups {
+		if autoFrozen(g) && g.FrozenAt != nil && g.FrozenAt.After(last) {
+			last = *g.FrozenAt
+		}
+	}
 	wait := max(time.Duration(cooldownIntervals*cfg.IntervalSeconds*float64(time.Second)), minCooldown)
-	return !r.frozeAt.IsZero() && now.Sub(r.frozeAt) < wait
+	return !last.IsZero() && now.Sub(last) < wait
 }
 
 // recheck lists again and returns the group with key if it is still running and unused.
