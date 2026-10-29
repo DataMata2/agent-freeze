@@ -91,3 +91,16 @@ func TestOnlyOneLoopRunsAtATime(t *testing.T) {
 		t.Fatalf("the second loop did not start after the first stopped: %v", err)
 	}
 }
+
+func TestRunCmdKillsACommandAfterTheTimeout(t *testing.T) {
+	old := cmdTimeout
+	cmdTimeout = 50 * time.Millisecond
+	t.Cleanup(func() { cmdTimeout = old })
+	start := time.Now()
+	if err := runCmd("sleep", "10"); err == nil {
+		t.Fatal("runCmd returned no error for a command it had to kill")
+	}
+	if d := time.Since(start); d > 5*time.Second {
+		t.Fatalf("runCmd took %v, want it to stop at the timeout", d)
+	}
+}

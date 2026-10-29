@@ -20,7 +20,8 @@ import (
 // ServiceLabel names the background service on both systems.
 const ServiceLabel = "io.github.datamata2.agent-freeze.auto"
 
-const cmdTimeout = 10 * time.Second
+// cmdTimeout bounds every command runCmd runs, notify-send too, so a hung one cannot stall the loop.
+var cmdTimeout = 10 * time.Second
 
 var runCmd = func(name string, args ...string) error {
 	ctx, cancel := context.WithTimeout(context.Background(), cmdTimeout)
