@@ -73,6 +73,11 @@ func (f *fakeAPI) Thaw(g freezer.GroupView) freezer.Result {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.thawed = append(f.thawed, g.Name)
+	for i := range f.groups {
+		if f.groups[i].Key == g.Key {
+			f.groups[i].State, f.groups[i].FrozenBy = "running", ""
+		}
+	}
 	return freezer.Result{Name: g.Name, OK: true}
 }
 
@@ -531,9 +536,17 @@ func TestCheckSkipsAGroupWithPendingInput(t *testing.T) {
 	if !slices.Equal(asked, []string{"/dev/old"}) {
 		t.Fatalf("asked %v, want the group's tty", asked)
 	}
+	// The group is backed off, so a tty that keeps unread bytes is not picked at every check.
 	run.PendingInput = func(string) int { return 0 }
+	if err := run.Check(autoCfg(), noFocus()); err != nil || len(api.froze) != 0 {
+		t.Fatalf("err=%v froze=%v, want the group backed off after the skip", err, api.froze)
+	}
+	run.Now = func() time.Time { return now.Add(31 * time.Minute) }
 	if err := run.Check(autoCfg(), noFocus()); err != nil || !slices.Equal(api.froze, []string{"old"}) {
-		t.Fatalf("err=%v froze=%v, want the freeze once the input is read", err, api.froze)
+		t.Fatalf("err=%v froze=%v, want the freeze after the retry wait", err, api.froze)
+	}
+	if len(rec.notices) != 1 {
+		t.Fatalf("notices %v, want only the freeze notice", rec.notices)
 	}
 }
 
@@ -652,5 +665,87 @@ func TestRunOffersNothingWithInputThawOff(t *testing.T) {
 	}
 	if got := api.thawedNames(); len(got) != 0 {
 		t.Fatalf("thawed %v with input-thaw off", got)
+	}
+}
+
+// fastChecks makes Run check every few milliseconds.
+func fastChecks(t *testing.T) {
+	t.Helper()
+	old := checkEvery
+	checkEvery = func(Config) time.Duration { return 5 * time.Millisecond }
+	t.Cleanup(func() { checkEvery = old })
+}
+
+// syncClock is a test clock that Run's goroutine can read.
+type syncClock struct {
+	mu sync.Mutex
+	at time.Time
+}
+
+func (c *syncClock) now() time.Time      { c.mu.Lock(); defer c.mu.Unlock(); return c.at }
+func (c *syncClock) add(d time.Duration) { c.mu.Lock(); c.at = c.at.Add(d); c.mu.Unlock() }
+
+func TestRunDoesNotRefreezeASessionThawedByInput(t *testing.T) {
+	fastChecks(t)
+	frozen := idleGroup("frozen", time.Hour, gib)
+	frozen.State, frozen.FrozenBy = "frozen", "auto"
+	api := &fakeAPI{groups: []freezer.GroupView{frozen}}
+	path := filepath.Join(t.TempDir(), "auto.json")
+	if err := SaveConfig(path, autoCfg()); err != nil {
+		t.Fatal(err)
+	}
+	clock := &syncClock{at: now}
+	run := newRunner(api, memWarn, &recorder{})
+	run.Now, run.Log, run.Notify = clock.now, func(Event) {}, func(string, string) {}
+	in, ev := fakeInput()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- run.Run(ctx, path, nil, in) }()
+	nextSet(t, in)
+	ev <- "/dev/frozen"
+	// Past the cooldown, short of the idle time: the thaw counts as use.
+	clock.add(3 * time.Minute)
+	for range 5 {
+		nextSet(t, in)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	if len(api.thawed) != 1 || len(api.froze) != 0 {
+		t.Fatalf("thawed %v, froze %v; want one thaw and no refreeze", api.thawed, api.froze)
+	}
+}
+
+func TestRunOffersTheTTYSetEvenWhenTheCheckFails(t *testing.T) {
+	frozen := idleGroup("frozen", time.Hour, gib)
+	frozen.State, frozen.FrozenBy = "frozen", "auto"
+	api := &fakeAPI{groups: []freezer.GroupView{frozen}}
+	path := filepath.Join(t.TempDir(), "auto.json")
+	if err := SaveConfig(path, autoCfg()); err != nil {
+		t.Fatal(err)
+	}
+	var out bytes.Buffer
+	old := stderr
+	stderr = &out
+	t.Cleanup(func() { stderr = old })
+	run := newRunner(api, calm, &recorder{})
+	run.Read = func() (pressure.Reading, error) { return pressure.Reading{}, errors.New("no pressure file") }
+	in, _ := fakeInput()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- run.Run(ctx, path, nil, in) }()
+	set := nextSet(t, in)
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(set, []string{"/dev/frozen"}) {
+		t.Fatalf("offered %v after a failed check", set)
+	}
+	if !strings.Contains(out.String(), "no pressure file") {
+		t.Fatalf("the check error was not reported: %q", out.String())
 	}
 }

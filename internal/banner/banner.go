@@ -65,9 +65,9 @@ func IsTTYPath(p string) bool {
 		strings.HasPrefix(p, ttyPrefix) && len(p) > len(ttyPrefix)) && filepath.Clean(p) == p
 }
 
-// checkTTY refuses any path that is not a clean /dev/pts/* or /dev/tty*
+// CheckTTY refuses any path that is not a clean /dev/pts/* or /dev/tty*
 // path naming a character device.
-func checkTTY(tty string) error {
+func CheckTTY(tty string) error {
 	if !IsTTYPath(tty) {
 		return fmt.Errorf("refusing to write to %q: not a terminal path", tty)
 	}
@@ -86,7 +86,7 @@ func checkTTY(tty string) error {
 // only to /dev/pts/* or /dev/tty* character devices and never blocks: if
 // the terminal is not accepting output, it gives up and returns nil.
 func ShowFrozen(tty, name string, at time.Time) error {
-	if err := checkTTY(tty); err != nil {
+	if err := CheckTTY(tty); err != nil {
 		return err
 	}
 	return showFrozen(tty, name, at)
@@ -95,7 +95,7 @@ func ShowFrozen(tty, name string, at time.Time) error {
 // ClearFrozen erases the bottom row written by ShowFrozen and sets the
 // window title back to name. The same path rules as ShowFrozen apply.
 func ClearFrozen(tty, name string) error {
-	if err := checkTTY(tty); err != nil {
+	if err := CheckTTY(tty); err != nil {
 		return err
 	}
 	return clearFrozen(tty, name)

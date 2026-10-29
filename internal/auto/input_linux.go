@@ -3,6 +3,7 @@ package auto
 import (
 	"context"
 	"errors"
+	"fmt"
 	"slices"
 	"time"
 
@@ -27,6 +28,12 @@ type sysPoller struct{}
 // open opens a terminal for poll and TIOCINQ only: it never becomes the
 // controlling terminal, never blocks, and is never read from.
 func (sysPoller) open(path string) (int, error) {
+	if !ttyPath(path) {
+		return -1, fmt.Errorf("refusing to open %q: not a terminal path", path)
+	}
+	if err := banner.CheckTTY(path); err != nil {
+		return -1, err
+	}
 	return unix.Open(path, unix.O_RDONLY|unix.O_NOCTTY|unix.O_NONBLOCK|unix.O_CLOEXEC, 0)
 }
 
@@ -45,9 +52,15 @@ func WatchInput(ctx context.Context) InputWatch {
 	return InputWatch{TTYs: sets, Events: events}
 }
 
+// ptmxPath opens a new pty master, not a terminal someone types into.
+const ptmxPath = "/dev/pts/ptmx"
+
+// ttyPath reports whether p may be opened to watch for input.
+func ttyPath(p string) bool { return banner.IsTTYPath(p) && p != ptmxPath }
+
 // PendingInput returns how many typed bytes wait unread on tty, or 0.
 func PendingInput(tty string) int {
-	if !banner.IsTTYPath(tty) {
+	if !ttyPath(tty) {
 		return 0
 	}
 	fd, err := inputPoller.open(tty)
@@ -71,14 +84,20 @@ func watchInput(ctx context.Context, p ttyPoller, sets <-chan []string, events c
 			select {
 			case <-ctx.Done():
 				return
-			case set := <-sets:
+			case set, ok := <-sets:
+				if !ok {
+					return
+				}
 				watch = ttyPaths(set)
 			}
 		} else {
 			select {
 			case <-ctx.Done():
 				return
-			case set := <-sets:
+			case set, ok := <-sets:
+				if !ok {
+					return
+				}
 				watch = ttyPaths(set)
 			default:
 			}
@@ -91,7 +110,7 @@ func watchInput(ctx context.Context, p ttyPoller, sets <-chan []string, events c
 func ttyPaths(set []string) []string {
 	var out []string
 	for _, t := range set {
-		if banner.IsTTYPath(t) && !slices.Contains(out, t) {
+		if ttyPath(t) && !slices.Contains(out, t) {
 			out = append(out, t)
 		}
 	}

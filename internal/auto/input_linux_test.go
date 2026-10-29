@@ -58,7 +58,12 @@ func (p *fakePoller) poll(fds []unix.PollFd, _ int) (int, error) {
 			n++
 		}
 	}
-	p.polls <- paths
+	p.mu.Unlock()
+	select { // never block the watcher on a full record
+	case p.polls <- paths:
+	default:
+	}
+	p.mu.Lock()
 	return n, nil
 }
 
@@ -156,8 +161,33 @@ func TestWatchInputIgnoresPollInWithNothingUnread(t *testing.T) {
 	p := newFakePoller()
 	p.set("/dev/pts/1", unix.POLLIN, 0)
 	sets, events := startWatcher(t, p)
-	sets <- []string{"/dev/pts/1"}
+	sets <- []string{"/dev/pts/1", "/dev/pts/2"}
+	// Dropped, or poll would return at once on it forever.
+	waitPoll(t, p, []string{"/dev/pts/2"})
 	expectNoEvent(t, events)
+}
+
+func TestWatchInputEndsWhenTheSetChannelCloses(t *testing.T) {
+	p := newFakePoller()
+	done := make(chan struct{})
+	sets := make(chan []string, 1)
+	sets <- []string{"/dev/pts/1"}
+	close(sets)
+	go func() { watchInput(context.Background(), p, sets, make(chan string)); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("watchInput kept running after its set channel closed")
+	}
+}
+
+func TestSysPollerRefusesWhatIsNotATerminal(t *testing.T) {
+	for _, path := range []string{"/dev/pts/ptmx", "/dev/null", "/dev/tty-missing", "/etc/passwd"} {
+		if fd, err := (sysPoller{}).open(path); err == nil {
+			unix.Close(fd)
+			t.Errorf("opened %s", path)
+		}
+	}
 }
 
 func TestWatchInputDropsHungUpTTYs(t *testing.T) {
@@ -200,7 +230,7 @@ func TestWatchInputOpensOnlyTerminalPaths(t *testing.T) {
 	p := newFakePoller()
 	p.set("/dev/pts/3", unix.POLLIN, 2)
 	sets, events := startWatcher(t, p)
-	sets <- []string{"/etc/passwd", "/dev/tty", "/dev/pts/", "/dev/pts/../sda", "", "/dev/frozen",
+	sets <- []string{"/etc/passwd", "/dev/tty", "/dev/pts/", "/dev/pts/../sda", "", "/dev/frozen", "/dev/pts/ptmx",
 		"/dev/pts/missing", "/dev/pts/3"}
 	expectEvent(t, events, "/dev/pts/3")
 	if got := p.openPaths(); !slices.Equal(got, []string{"/dev/pts/missing", "/dev/pts/3"}) {

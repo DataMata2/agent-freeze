@@ -223,7 +223,9 @@ shows a notification (`notify-send` on Linux).
 On Linux, auto mode watches the terminals of the sessions it froze: as soon
 as you type into one, that session thaws and reads what you typed (turn this
 off with `afz auto set input-thaw off`). It only looks at whether unread input
-is waiting and never reads it, so nothing you type is lost. Anything the
+is waiting and never reads it, so nothing you type is lost. Input counts as
+soon as one byte arrives in raw mode, which agents use; in a terminal in
+canonical (line) mode it counts only after Enter. Anything the
 terminal sends counts as typing: pastes, mouse events, and the focus reports
 some terminals send when you switch to their window. A session with typed
 input it has not read yet is never frozen. Only sessions auto mode froze thaw

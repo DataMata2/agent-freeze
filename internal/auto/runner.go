@@ -4,6 +4,7 @@ package auto
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -24,6 +25,9 @@ const (
 	cooldownIntervals = 2
 	minCooldown       = 60 * time.Second
 )
+
+// checkEvery returns the wait between checks; tests shorten it.
+var checkEvery = func(cfg Config) time.Duration { return time.Duration(cfg.IntervalSeconds * float64(time.Second)) }
 
 // frozenByAuto is the freezer's "frozen by" mark of an auto-mode freeze.
 const frozenByAuto = "auto"
@@ -101,6 +105,7 @@ func (r *Runner) Check(cfg Config, focus Focus) error {
 	}
 	// Typed input the session has not read yet: the user is back.
 	if g.TTY != "" && r.PendingInput(g.TTY) > 0 {
+		r.backOff(g.Key, now) // or a tty that keeps unread bytes is picked at every check
 		return nil
 	}
 	st, err := r.API.Status()
@@ -275,6 +280,8 @@ func (r *Runner) Run(ctx context.Context, cfgPath string, tabs <-chan string, in
 				input.Events = nil
 				continue
 			}
+			// Typing counts as use: idle time starts again from now, as when a tab is left.
+			focus.LeftAt[tty] = r.Now()
 			cfg, err := LoadConfig(cfgPath)
 			if err == nil {
 				err = r.ThawInput(cfg, tty)
@@ -287,13 +294,10 @@ func (r *Runner) Run(ctx context.Context, cfgPath string, tabs <-chan string, in
 		case <-timer.C:
 			cfg, err := LoadConfig(cfgPath)
 			if err == nil {
-				err = r.Check(cfg, focus)
-			}
-			if err == nil {
-				err = r.offerTTYs(cfg, input, "")
+				err = errors.Join(r.Check(cfg, focus), r.offerTTYs(cfg, input, ""))
 			}
 			report(err)
-			timer.Reset(time.Duration(cfg.IntervalSeconds * float64(time.Second)))
+			timer.Reset(checkEvery(cfg))
 		}
 	}
 }
