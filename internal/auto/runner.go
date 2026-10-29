@@ -66,6 +66,8 @@ type Runner struct {
 	// autoKeys maps the key of each group auto mode froze, as last seen, to its tty;
 	// nil until Run first looks.
 	autoKeys map[string]string
+	// skipNoticed is whether a skip was notified since the last check without pressure.
+	skipNoticed bool
 }
 
 // Check runs one auto-mode check and freezes at most one group.
@@ -80,6 +82,7 @@ func (r *Runner) Check(cfg Config, focus Focus) error {
 	perPID := r.CPU() // every check, so Linux deltas cover one interval
 	now := r.Now()
 	if !memoryShort(cfg, reading.Memory) && !cpuShort(cfg, reading.LoadPerCPU) {
+		r.skipNoticed = false
 		return nil
 	}
 	groups, err := r.API.List()
@@ -121,8 +124,9 @@ func (r *Runner) Check(cfg Config, focus Focus) error {
 		r.backOff(g.Key, now)
 		ev := Event{Time: now, Action: "skipped", Name: g.Name, RSS: g.RSS,
 			Reason: fmt.Sprintf("not enough free swap: need %s, have %s", human.Bytes(g.RSS), human.Bytes(st.SwapFree))}
-		if cfg.Notify {
+		if cfg.Notify && !r.skipNoticed { // or each idle group is notified in turn
 			r.Notify(prog.Name, ev.String())
+			r.skipNoticed = true
 		}
 		r.Log(ev)
 		return nil

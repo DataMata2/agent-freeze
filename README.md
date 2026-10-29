@@ -189,7 +189,7 @@ check.
 | `cpu-use` | `10` | % of one core an unused session must use to be frozen for CPU |
 | `away` | `5` | minutes a session must be unused while the selected tab is unknown (macOS) |
 | `retry` | `30` | minutes before a session that failed to freeze, or was skipped, is tried again |
-| `notify` | `on` | a notification on each auto freeze or skipped freeze |
+| `notify` | `on` | a notification on each auto freeze, and on the first skipped freeze under pressure |
 | `tab-thaw` | `on` | selecting an auto-frozen session's Terminal tab thaws it (macOS) |
 | `input-thaw` | `on` | typing into an auto-frozen session's terminal thaws it (Linux) |
 
@@ -216,11 +216,12 @@ trigger.
 
 Right before a freeze, auto mode lists the sessions again and checks the
 chosen one once more, since it may have started a turn. If free swap is
-smaller than the session's RAM it skips the freeze, logs it, and notifies
-you; a session it skips or fails to freeze is left alone for the retry
-time. After an auto freeze it waits two check intervals, and at least 60
-seconds, so the freed memory shows in the next reading, and freezes again
-only if that reading still shows pressure. This wait also covers a freeze
+smaller than the session's RAM it skips the freeze, logs it, and, if notify
+is on, notifies you (once until a check sees no pressure); a session it
+skips or fails to freeze is left alone for the retry time. After an auto
+freeze it waits two check intervals, and at least 60 seconds, so the freed
+memory shows in the next reading, and freezes again only if that reading
+still shows pressure. This wait also covers a freeze
 made before the service restarted.
 
 `afz list --json` shows `"frozen_by": "auto"` on sessions auto mode froze.

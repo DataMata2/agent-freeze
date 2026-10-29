@@ -79,7 +79,8 @@ under memory or CPU pressure, freezes at most one unused session per check.
   candidate: an idle session seldom uses much CPU.
 - Before a freeze it lists again and re-checks the group. On Linux a session
   with typed input it has not read yet is left alone. If free swap is
-  smaller than its RAM it logs a `skipped` event (and notifies). Either way
+  smaller than its RAM it logs a `skipped` event (and, if notify is on,
+  notifies, once until a check sees no pressure). Either way
   that session is tried again after `retry` minutes.
 - After an auto freeze it waits max(2 intervals, 60 s), counted from the
   newest auto freeze (also one from before a restart), and then needs a new

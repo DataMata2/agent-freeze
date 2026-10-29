@@ -865,3 +865,38 @@ func TestRunRestartsIdleTimeWhenAnAutoFreezeIsThawedByHand(t *testing.T) {
 		t.Fatalf("froze %v right after a manual thaw; want its idle time to start again", api.froze)
 	}
 }
+
+func TestCheckNotifiesSkipsOncePerPressureEpisode(t *testing.T) {
+	var groups []freezer.GroupView
+	for _, n := range []string{"a", "b", "c"} {
+		groups = append(groups, idleGroup(n, time.Hour, gib))
+	}
+	api := &fakeAPI{groups: groups, swapFree: 512 << 20}
+	rec := &recorder{}
+	run := newRunner(api, memWarn, rec)
+	clock := now
+	run.Now = func() time.Time { return clock }
+	reading := memWarn
+	run.Read = func() (pressure.Reading, error) { return reading, nil }
+	check := func() {
+		t.Helper()
+		if err := run.Check(autoCfg(), noFocus()); err != nil {
+			t.Fatal(err)
+		}
+		clock = clock.Add(30 * time.Second)
+	}
+	for range 3 {
+		check()
+	}
+	if len(rec.events) != 3 || len(rec.notices) != 1 {
+		t.Fatalf("events %d, notices %q; want every skip logged and one notice", len(rec.events), rec.notices)
+	}
+	reading = calm
+	check()
+	reading = memWarn
+	clock = clock.Add(31 * time.Minute) // past the retry wait
+	check()
+	if len(rec.events) != 4 || len(rec.notices) != 2 {
+		t.Fatalf("events %d, notices %q; want a new notice once pressure came back", len(rec.events), rec.notices)
+	}
+}
