@@ -900,3 +900,27 @@ func TestCheckNotifiesSkipsOncePerPressureEpisode(t *testing.T) {
 		t.Fatalf("events %d, notices %q; want a new notice once pressure came back", len(rec.events), rec.notices)
 	}
 }
+
+func TestCheckForgetsAFutureFreezeTimeOnceItIsGone(t *testing.T) {
+	at := now.Add(time.Hour) // the clock was set back after the freeze
+	earlier := idleGroup("earlier", time.Hour, gib)
+	earlier.State, earlier.FrozenBy, earlier.FrozenAt = "frozen", "auto", &at
+	api := &fakeAPI{groups: []freezer.GroupView{earlier, idleGroup("next", time.Hour, gib)}}
+	run := newRunner(api, memWarn, &recorder{})
+	clock := now
+	run.Now = func() time.Time { return clock }
+	cfg := autoCfg()
+	cfg.IntervalSeconds = 30
+	if err := run.Check(cfg, noFocus()); err != nil || len(api.froze) != 0 {
+		t.Fatalf("err=%v froze=%v, want a cooldown from the future freeze", err, api.froze)
+	}
+	// Thawed: no freeze time is ahead of the clock any more, so no cooldown is left.
+	api.mu.Lock()
+	api.groups[0].State, api.groups[0].FrozenBy, api.groups[0].FrozenAt = "running", "", nil
+	api.groups[0].Status = "busy"
+	api.mu.Unlock()
+	clock = clock.Add(30 * time.Second)
+	if err := run.Check(cfg, noFocus()); err != nil || !slices.Equal(api.froze, []string{"next"}) {
+		t.Fatalf("err=%v froze=%v, want next frozen once the future freeze time is gone", err, api.froze)
+	}
+}
