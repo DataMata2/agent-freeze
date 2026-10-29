@@ -127,3 +127,32 @@ func TestKeysWaitWhileTheModeSwitches(t *testing.T) {
 		t.Fatalf("busy=%v calls=%d after the switch", m.busy, calls)
 	}
 }
+
+func TestAutoKeysAreTextWhileTheFilterPromptIsOpen(t *testing.T) {
+	freshState(t)
+	m := loaded(t, newFake())
+	called := false
+	m.setAuto = func(bool) error { called = true; return nil }
+	m = press(t, m, "/", "p", "m", "s")
+	if !m.filtering || m.filter != "pms" {
+		t.Fatalf("filtering=%v filter=%q, want prompt open with %q", m.filtering, m.filter, "pms")
+	}
+	cfg, _ := auto.LoadConfig(auto.DefaultPath())
+	if called || m.settings || len(cfg.Pins) != 0 {
+		t.Fatalf("prompt keys acted: setAuto called=%v settings=%v pins=%v", called, m.settings, cfg.Pins)
+	}
+}
+
+func TestPKeyPinsTheCurrentFilteredRow(t *testing.T) {
+	freshState(t)
+	m := loaded(t, newFake())
+	m = pressKeys(t, m, "/", "l", "t", "enter")
+	if visibleKeys(m) != "delta-key" {
+		t.Fatalf("visible = %q", visibleKeys(m))
+	}
+	m = press(t, m, "p")
+	cfg, _ := auto.LoadConfig(auto.DefaultPath())
+	if !slices.Equal(cfg.Pins, []string{"delta-key"}) {
+		t.Fatalf("pins = %v, want [delta-key]", cfg.Pins)
+	}
+}
