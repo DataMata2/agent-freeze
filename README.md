@@ -265,7 +265,10 @@ Notifications use `notify-send`; if it is not installed, the service warns
 once in its log and sends none. The systemd unit restarts the service 5
 seconds after a failure. `afz auto on` writes `CLAUDE_CONFIG_DIR` and
 `AFZ_NO_BANNER=1` into the unit when they are set in its environment; after
-changing either, run `afz auto on` again. The service log is
+changing either, run `afz auto on` again. `afz rename` and `m` in the TUI
+rewrite the unit from their own environment too: a variable not set there
+drops out of the unit, so set it, or run `afz auto on` again afterwards.
+The service log is
 `journalctl --user -u agent-freeze-auto.service`.
 
 #### Not covered
@@ -278,6 +281,10 @@ changing either, run `afz auto on` again. The service log is
 - A session with no terminal that you thaw with `u` or `afz thaw` may be
   auto-frozen again after the cooldown if the pressure holds and it stays
   idle; pin it. (With a terminal, its idle time starts again.)
+- A Claude background session (run by `claude --bg-pty-host`) does not thaw
+  when you type into it: auto mode watches the session's own terminal, and
+  the host process that passes your typing on to it is frozen with the
+  session. Thaw it with `u` or `afz thaw`.
 - Auto freezes made by a version without `frozen_by` look manual after an
   upgrade and never thaw by themselves; thaw them with `u` or `afz thaw`.
 

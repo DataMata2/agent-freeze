@@ -98,7 +98,12 @@ under memory or CPU pressure, freezes at most one unused session per check.
   macOS only.
 - Notifications use `notify-send` on Linux; without it the service warns once
   on stderr and sends none. The unit copies `CLAUDE_CONFIG_DIR` and
-  `AFZ_NO_BANNER=1` from the environment of `afz auto on` when set.
+  `AFZ_NO_BANNER=1` from the environment of `afz auto on` when set; `rename`
+  rewrites the unit from its own environment, so a variable not set there
+  drops out (run `afz auto on` again with it set).
+- Input-thaw does not work for Claude background sessions
+  (`claude --bg-pty-host`): the host that forwards typing is frozen with
+  the group. Thaw those with `thaw`.
 
 ## Exit codes
 
