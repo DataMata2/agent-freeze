@@ -498,6 +498,32 @@ func TestCheckInAFreshRunnerWaitsOutTheCooldownOfAnEarlierAutoFreeze(t *testing.
 	}
 }
 
+func TestCheckCooldownFromAFreezeTimeInTheFutureEndsOnTime(t *testing.T) {
+	// The clock was set back after the freeze: its time is an hour ahead.
+	at := now.Add(time.Hour)
+	earlier := idleGroup("earlier", time.Hour, gib)
+	earlier.State, earlier.FrozenBy, earlier.FrozenAt = "frozen", "auto", &at
+	api := &fakeAPI{groups: []freezer.GroupView{earlier, idleGroup("next", time.Hour, gib)}}
+	rec := &recorder{}
+	run := newRunner(api, memWarn, rec)
+	clock := now
+	run.Now = func() time.Time { return clock }
+	cfg := autoCfg()
+	cfg.IntervalSeconds = 30
+	var froze []int
+	for range 4 {
+		if err := run.Check(cfg, noFocus()); err != nil {
+			t.Fatal(err)
+		}
+		froze = append(froze, len(api.froze))
+		clock = clock.Add(30 * time.Second)
+	}
+	// Cooling down from the first check (0s, 30s), free at 60s.
+	if !slices.Equal(froze, []int{0, 0, 1, 1}) {
+		t.Fatalf("freezes after checks at 0, 30, 60, 90s = %v, want [0 0 1 1]", froze)
+	}
+}
+
 func TestCheckNotifiesASkippedFreeze(t *testing.T) {
 	api := &fakeAPI{groups: []freezer.GroupView{idleGroup("big", time.Hour, gib)}, swapFree: 512 << 20}
 	rec := &recorder{}
