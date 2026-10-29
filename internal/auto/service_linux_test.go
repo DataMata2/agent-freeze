@@ -1,10 +1,13 @@
 package auto
 
 import (
+	"errors"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/DataMata2/agent-freeze/internal/prog"
 )
 
 func fakeCommands(t *testing.T) (*[]string, string) {
@@ -70,10 +73,56 @@ func TestUnitPathIgnoresARelativeConfigHome(t *testing.T) {
 	}
 }
 
-func TestNotifyEscapesMarkup(t *testing.T) {
+// fakeNotifySend makes Notify find notify-send at path (or not at all when path
+// is "") and records its stderr warnings; it never runs the real command.
+func fakeNotifySend(t *testing.T, path string) (*int, *strings.Builder) {
+	t.Helper()
+	looks := 0
+	var warn strings.Builder
+	old := notifier
+	notifier = &notifySend{
+		look: func(file string) (string, error) {
+			looks++
+			if file != "notify-send" || path == "" {
+				return "", errors.New("not found")
+			}
+			return path, nil
+		},
+		warn: &warn,
+	}
+	t.Cleanup(func() { notifier = old })
+	return &looks, &warn
+}
+
+func TestNotifyNamesTheAppAndEscapesTitleAndBody(t *testing.T) {
 	calls, _ := fakeCommands(t)
-	Notify("afz", "froze <b>x</b> & y")
-	if len(*calls) != 1 || (*calls)[0] != "notify-send afz froze &lt;b&gt;x&lt;/b&gt; &amp; y" {
-		t.Fatalf("calls = %v", *calls)
+	looks, _ := fakeNotifySend(t, "/usr/bin/notify-send")
+	Notify("a<z>", "froze <b>x</b> & y")
+	Notify("afz", "again")
+	want := []string{
+		"/usr/bin/notify-send -a " + prog.Name + " -- a&lt;z&gt; froze &lt;b&gt;x&lt;/b&gt; &amp; y",
+		"/usr/bin/notify-send -a " + prog.Name + " -- afz again",
+	}
+	if strings.Join(*calls, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("calls:\n%s\nwant:\n%s", strings.Join(*calls, "\n"), strings.Join(want, "\n"))
+	}
+	if *looks != 1 {
+		t.Fatalf("looked up notify-send %d times, want once", *looks)
+	}
+}
+
+func TestNotifyWithoutNotifySendWarnsOnceAndStopsTrying(t *testing.T) {
+	calls, _ := fakeCommands(t)
+	looks, warn := fakeNotifySend(t, "")
+	Notify("afz", "one")
+	Notify("afz", "two")
+	if len(*calls) != 0 {
+		t.Fatalf("ran %v without notify-send", *calls)
+	}
+	if *looks != 1 {
+		t.Fatalf("looked up notify-send %d times, want once", *looks)
+	}
+	if got := warn.String(); strings.Count(got, "\n") != 1 || !strings.Contains(got, "notify-send") {
+		t.Fatalf("warnings = %q, want one line naming notify-send", got)
 	}
 }
