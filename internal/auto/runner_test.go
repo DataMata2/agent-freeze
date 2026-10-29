@@ -25,6 +25,7 @@ type fakeAPI struct {
 	frozeBy   []string
 	thawed    []string
 	failKey   string
+	thawFail  bool                                // Thaw records the try and fails
 	swapFree  uint64                              // free swap Status reports; 0 means plenty
 	statusErr error                               // returned by Status
 	listHook  func(n int, gs []freezer.GroupView) // edits what the n-th List (from 1) returns
@@ -73,6 +74,9 @@ func (f *fakeAPI) Thaw(g freezer.GroupView) freezer.Result {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.thawed = append(f.thawed, g.Name)
+	if f.thawFail {
+		return freezer.Result{Name: g.Name, Error: "boom"}
+	}
 	for i := range f.groups {
 		if f.groups[i].Key == g.Key {
 			f.groups[i].State, f.groups[i].FrozenBy = "running", ""
@@ -773,5 +777,53 @@ func TestRunOffersTheTTYSetEvenWhenTheCheckFails(t *testing.T) {
 	}
 	if !strings.Contains(out.String(), "no pressure file") {
 		t.Fatalf("the check error was not reported: %q", out.String())
+	}
+}
+
+func TestRunDoesNotSpinOnInputThawsThatFail(t *testing.T) {
+	x := idleGroup("x", time.Hour, gib)
+	x.State, x.FrozenBy = "frozen", "auto"
+	y := idleGroup("y", time.Hour, gib)
+	y.State, y.FrozenBy = "frozen", "auto"
+	api := &fakeAPI{groups: []freezer.GroupView{x, y}, thawFail: true}
+	path := filepath.Join(t.TempDir(), "auto.json")
+	if err := SaveConfig(path, autoCfg()); err != nil {
+		t.Fatal(err)
+	}
+	run := newRunner(api, calm, &recorder{})
+	run.Log = func(Event) {}
+	in, ev := fakeInput()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- run.Run(ctx, path, nil, in) }()
+	// A watcher whose ttys all have unread input: it reports each tty of every set at once.
+	watched := make(chan struct{})
+	go func() {
+		defer close(watched)
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case set := <-in.TTYs:
+				for _, tty := range set {
+					select {
+					case ev <- tty:
+					case <-ctx.Done():
+						return
+					}
+				}
+			}
+		}
+	}()
+	time.Sleep(200 * time.Millisecond)
+	cancel()
+	<-watched
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	// Until the next check, 30 s away, each set leaves out the ttys tried: {x y}, then
+	// {y}, then {}. The watcher may still take {y} before {} replaces it, so 2 or 3 tries.
+	if got := api.thawedNames(); len(got) < 2 || len(got) > 3 {
+		t.Fatalf("%d thaw tries, want 2 or 3: %v", len(got), got[:min(len(got), 10)])
 	}
 }

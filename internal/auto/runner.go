@@ -232,9 +232,9 @@ func (r *Runner) thawTTY(tty, reason string) error {
 	return nil
 }
 
-// offerTTYs gives the input watcher the ttys of the groups auto mode froze, except skip,
+// offerTTYs gives the input watcher the ttys of the groups auto mode froze, except those in skip,
 // or none when input thaw is off. The watcher takes only the newest set.
-func (r *Runner) offerTTYs(cfg Config, in InputWatch, skip string) error {
+func (r *Runner) offerTTYs(cfg Config, in InputWatch, skip map[string]bool) error {
 	if in.TTYs == nil {
 		return nil
 	}
@@ -245,7 +245,7 @@ func (r *Runner) offerTTYs(cfg Config, in InputWatch, skip string) error {
 			return err
 		}
 		for _, g := range groups {
-			if autoFrozen(g) && g.TTY != "" && g.TTY != skip && !slices.Contains(ttys, g.TTY) {
+			if autoFrozen(g) && g.TTY != "" && !skip[g.TTY] && !slices.Contains(ttys, g.TTY) {
 				ttys = append(ttys, g.TTY)
 			}
 		}
@@ -278,6 +278,9 @@ func (r *Runner) Run(ctx context.Context, cfgPath string, tabs <-chan string, in
 		}
 		lastErr = msg
 	}
+	// The ttys with input since the last check: left out of the offered sets until the
+	// next check, so thaws that fail on two ttys do not take turns in a loop.
+	tried := map[string]bool{}
 	timer := time.NewTimer(0)
 	defer timer.Stop()
 	for {
@@ -308,15 +311,17 @@ func (r *Runner) Run(ctx context.Context, cfgPath string, tabs <-chan string, in
 			if err == nil {
 				err = r.ThawInput(cfg, tty)
 			}
+			tried[tty] = true
 			if err == nil {
-				// Without tty: a failed thaw is tried again after the next check, not in a loop.
-				err = r.offerTTYs(cfg, input, tty)
+				// A failed thaw is tried again after the next check, not in a loop.
+				err = r.offerTTYs(cfg, input, tried)
 			}
 			report(err)
 		case <-timer.C:
+			clear(tried)
 			cfg, err := LoadConfig(cfgPath)
 			if err == nil {
-				err = errors.Join(r.Check(cfg, focus), r.offerTTYs(cfg, input, ""))
+				err = errors.Join(r.Check(cfg, focus), r.offerTTYs(cfg, input, tried))
 			}
 			report(err)
 			timer.Reset(checkEvery(cfg))
