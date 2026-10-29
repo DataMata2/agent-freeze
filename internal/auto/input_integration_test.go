@@ -80,3 +80,26 @@ func TestWatchInputSeesTypingWithoutConsumingIt(t *testing.T) {
 		t.Fatalf("read %q, %v; want \"x\"", buf[:n], err)
 	}
 }
+
+func TestTTYReadAtIsWhenTheAgentLastReadInput(t *testing.T) {
+	master, slavePath := openPTY(t)
+	slave, err := unix.Open(slavePath, unix.O_RDWR|unix.O_NOCTTY|unix.O_CLOEXEC, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer unix.Close(slave)
+	if _, err := unix.Write(master, []byte("x")); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := unix.Read(slave, make([]byte, 1)); err != nil {
+		t.Fatal(err)
+	}
+	at, ok := ttyReadAt(slavePath)
+	if !ok {
+		t.Fatalf("ttyReadAt(%s) failed", slavePath)
+	}
+	// The kernel stores this in 8-second steps.
+	if d := time.Since(at); d < -time.Second || d > 10*time.Second {
+		t.Fatalf("ttyReadAt = %v, %v ago; want within the last 10s", at, d)
+	}
+}

@@ -122,7 +122,27 @@ func TestPickWhenTheCPUIsBusyTakesTheUnusedGroupBurningMostCPU(t *testing.T) {
 	}
 }
 
+// withAwayWait sets whether the away wait applies, as it does on macOS, for one test.
+func withAwayWait(t *testing.T, on bool) {
+	t.Helper()
+	old := awayWaitApplies
+	awayWaitApplies = on
+	t.Cleanup(func() { awayWaitApplies = old })
+}
+
+// withTTYReads fakes when each terminal last had input read; a missing one fails to stat.
+func withTTYReads(t *testing.T, reads map[string]time.Time) {
+	t.Helper()
+	old := ttyActivity
+	ttyActivity = func(tty string) (time.Time, bool) {
+		at, ok := reads[tty]
+		return at, ok
+	}
+	t.Cleanup(func() { ttyActivity = old })
+}
+
 func TestPickWithUnknownFocusWaitsAtLeastFiveMinutes(t *testing.T) {
+	withAwayWait(t, true)
 	cfg := Defaults()
 	cfg.IdleMinutes = 0
 	groups := []freezer.GroupView{idleGroup("typing", 2*time.Minute, gib)}
@@ -203,10 +223,67 @@ func TestPickTakesTheCPUTriggerAndThresholdFromSettings(t *testing.T) {
 }
 
 func TestPickTakesTheAwayWaitFromSettings(t *testing.T) {
+	withAwayWait(t, true)
 	cfg := Defaults()
 	cfg.IdleMinutes, cfg.AwayMinutes = 0, 1
 	groups := []freezer.GroupView{idleGroup("left", 2*time.Minute, gib)}
 	if got := pickName(t, groups, memWarn, nil, cfg, FocusUnknown); got != "left" {
 		t.Fatalf("Pick = %q, want left after a 1-minute away wait", got)
+	}
+}
+
+func TestPickWithoutTheAwayWaitTakesTheIdleTimeOnly(t *testing.T) {
+	withAwayWait(t, false)
+	cfg := Defaults()
+	cfg.IdleMinutes = 1
+	groups := []freezer.GroupView{idleGroup("left", 2*time.Minute, gib)}
+	if got := pickName(t, groups, memWarn, nil, cfg, FocusUnknown); got != "left" {
+		t.Fatalf("Pick = %q, want left: typing is measured, so no away wait applies", got)
+	}
+}
+
+func TestPickCountsTypingIntoTheTerminalAsUse(t *testing.T) {
+	cfg := Defaults()
+	cfg.IdleMinutes = 15
+	groups := []freezer.GroupView{idleGroup("typed", 30*time.Minute, gib)}
+	withTTYReads(t, map[string]time.Time{"/dev/typed": now.Add(-2 * time.Minute)})
+	if got := pickName(t, groups, memWarn, nil, cfg, ""); got != "" {
+		t.Fatalf("Pick = %q, want none: its terminal read input 2 minutes ago", got)
+	}
+	withTTYReads(t, map[string]time.Time{"/dev/typed": now.Add(-20 * time.Minute)})
+	if got := pickName(t, groups, memWarn, nil, cfg, ""); got != "typed" {
+		t.Fatalf("Pick = %q, want typed: its terminal last read input 20 minutes ago", got)
+	}
+}
+
+func TestPickWhenTheTerminalCannotBeStattedUsesTheStatusTime(t *testing.T) {
+	cfg := Defaults()
+	cfg.IdleMinutes = 15
+	withTTYReads(t, nil)
+	if got := pickName(t, []freezer.GroupView{idleGroup("old", 30*time.Minute, gib)}, memWarn, nil, cfg, ""); got != "old" {
+		t.Fatalf("Pick = %q, want old", got)
+	}
+	if got := pickName(t, []freezer.GroupView{idleGroup("new", 10*time.Minute, gib)}, memWarn, nil, cfg, ""); got != "" {
+		t.Fatalf("Pick = %q, want none", got)
+	}
+}
+
+func TestPickIgnoresATerminalReadOlderThanTheStatus(t *testing.T) {
+	cfg := Defaults()
+	cfg.IdleMinutes = 15
+	withTTYReads(t, map[string]time.Time{"/dev/old": now.Add(-5 * time.Hour)})
+	if got := pickName(t, []freezer.GroupView{idleGroup("old", 10*time.Minute, gib)}, memWarn, nil, cfg, ""); got != "" {
+		t.Fatalf("Pick = %q, want none: the status changed 10 minutes ago", got)
+	}
+}
+
+func TestPickOrdersByTheLatestTyping(t *testing.T) {
+	groups := []freezer.GroupView{
+		idleGroup("typed", 3*time.Hour, gib),
+		idleGroup("quiet", time.Hour, gib),
+	}
+	withTTYReads(t, map[string]time.Time{"/dev/typed": now.Add(-20 * time.Minute)})
+	if got := pickName(t, groups, memWarn, nil, Defaults(), ""); got != "quiet" {
+		t.Fatalf("Pick = %q, want quiet: typed read input more recently", got)
 	}
 }

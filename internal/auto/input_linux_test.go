@@ -237,3 +237,11 @@ func TestWatchInputOpensOnlyTerminalPaths(t *testing.T) {
 		t.Fatalf("opened %v", got)
 	}
 }
+
+func TestTTYReadAtStatsOnlyTerminalPaths(t *testing.T) {
+	for _, p := range []string{"", "/etc/passwd", "/dev/pts/ptmx", "/dev/pts/../null", "/dev/null"} {
+		if at, ok := ttyReadAt(p); ok {
+			t.Errorf("ttyReadAt(%q) = %v, true; want false", p, at)
+		}
+	}
+}

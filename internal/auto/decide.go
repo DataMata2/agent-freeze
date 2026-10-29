@@ -75,17 +75,30 @@ func unused(g freezer.GroupView, cfg Config, focus Focus, now time.Time) bool {
 	}
 	need := cfg.IdleMinutes
 	// Without tab detection, a session being typed into must still never be frozen.
-	if focus.TTY == FocusUnknown {
+	// Where typing is measured (ttyActivity), it needs no extra wait.
+	if focus.TTY == FocusUnknown && awayWaitApplies {
 		need = max(need, cfg.AwayMinutes)
 	}
 	return idleFor(g, focus, now).Minutes() >= need
 }
 
-// idleFor is how long ago g last changed status or had its tab selected, 0 if unknown.
+// ttyActivity reports when tty last had typed input read from it; tests replace it.
+var ttyActivity = ttyReadAt
+
+// awayWaitApplies is whether AwayMinutes applies while the selected tab is unknown.
+var awayWaitApplies = awayWaitDefault
+
+// idleFor is how long ago g last changed status, had its tab selected or had
+// typed input read from its terminal, 0 if unknown.
 func idleFor(g freezer.GroupView, focus Focus, now time.Time) time.Duration {
 	since := g.StatusSince
 	if left, ok := focus.LeftAt[g.TTY]; ok && g.TTY != "" && (since == nil || left.After(*since)) {
 		since = &left
+	}
+	if g.TTY != "" {
+		if read, ok := ttyActivity(g.TTY); ok && (since == nil || read.After(*since)) {
+			since = &read
+		}
 	}
 	if since == nil {
 		return 0

@@ -187,7 +187,7 @@ check.
 | `memory` | `warn` | memory pressure that starts freezing: `warn`, `critical` or `off` |
 | `cpu-load` | `1` | load per CPU core that starts freezing; `0` turns the CPU check off |
 | `cpu-use` | `10` | % of one core an unused session must use to be frozen for CPU |
-| `away` | `5` | minutes a session must be unused while the selected tab is unknown |
+| `away` | `5` | minutes a session must be unused while the selected tab is unknown (macOS) |
 | `retry` | `30` | minutes before a session that failed to freeze is tried again |
 | `notify` | `on` | a notification on each auto freeze |
 | `tab-thaw` | `on` | selecting a frozen session's Terminal tab thaws it (macOS) |
@@ -204,8 +204,9 @@ back to normal. When the CPU is busy, it freezes the unused session that uses
 the most CPU. One session per check, never more.
 
 A session is unused when it is idle or at the shell prompt for at least the
-idle time, counted from its last turn or from when you last had its tab
-selected, whichever is later. A session it fails to freeze is left alone for
+idle time, counted from its last turn, from when you last had its tab
+selected, or (on Linux) from when it last read what you typed into its
+terminal, whichever is later. A session it fails to freeze is left alone for
 the retry time. Auto mode never freezes a busy session, the session running it, a
 daemon, a pinned session (`p` in the TUI), or an agent with no status (only
 Claude Code reports one). Sessions running a dev server are not exempt: pin
@@ -214,7 +215,7 @@ them if they must keep running.
 On macOS, auto mode also watches Apple Terminal: the session in the selected
 tab is never frozen, and a frozen session thaws as soon as you select its tab.
 The first time, macOS asks whether `afz` may control Terminal; allow it. While
-the tab cannot be read (permission denied, another app in front, Linux), a
+the tab cannot be read (permission denied, another app in front), a
 session must also be unused for the away time. Inside tmux, or in
 another terminal app, the selected tab cannot be matched to a session: pin
 the sessions you are working in, or raise the idle time. Each auto freeze

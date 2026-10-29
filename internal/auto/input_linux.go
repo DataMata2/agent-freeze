@@ -58,6 +58,24 @@ const ptmxPath = "/dev/pts/ptmx"
 // ttyPath reports whether p may be opened to watch for input.
 func ttyPath(p string) bool { return banner.IsTTYPath(p) && p != ptmxPath }
 
+// awayWaitDefault is false: typing is measured by ttyReadAt, so AwayMinutes
+// does not apply.
+const awayWaitDefault = false
+
+// ttyReadAt returns when the agent last read typed input from tty: the
+// kernel moves a pts's atime on each read (in 8-second steps); output moves
+// only mtime. It only stats the path, never opens it.
+func ttyReadAt(tty string) (time.Time, bool) {
+	if !ttyPath(tty) {
+		return time.Time{}, false
+	}
+	var st unix.Stat_t
+	if err := unix.Stat(tty, &st); err != nil || st.Mode&unix.S_IFMT != unix.S_IFCHR {
+		return time.Time{}, false
+	}
+	return time.Unix(st.Atim.Unix()), true
+}
+
 // PendingInput returns how many typed bytes wait unread on tty, or 0.
 func PendingInput(tty string) int {
 	if !ttyPath(tty) {

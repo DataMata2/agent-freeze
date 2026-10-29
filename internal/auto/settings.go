@@ -34,7 +34,7 @@ var Settings = []Setting{
 		Max: 8, Inc: 0.25, num: func(c *Config) *float64 { return &c.CPULoad }},
 	{Name: "cpu-use", Label: "CPU use to freeze", Unit: "%", Help: "of one core, used while unused",
 		Max: 1000, Inc: 5, num: func(c *Config) *float64 { return &c.CPUUsePercent }},
-	{Name: "away", Label: "away wait", Unit: "min", Help: "least unused time while the selected tab is unknown",
+	{Name: "away", Label: "away wait", Unit: "min", Help: "least unused time while the selected tab is unknown (macOS)",
 		Max: 1440, Inc: 1, num: func(c *Config) *float64 { return &c.AwayMinutes }},
 	{Name: "retry", Label: "retry after fail", Unit: "min", Help: "wait before trying a failed session again",
 		Max: 1440, Inc: 5, num: func(c *Config) *float64 { return &c.RetryMinutes }},
