@@ -36,13 +36,13 @@ var Settings = []Setting{
 		Max: 1000, Inc: 5, num: func(c *Config) *float64 { return &c.CPUUsePercent }},
 	{Name: "away", Label: "away wait", Unit: "min", Help: "least unused time while the selected tab is unknown (macOS)",
 		Max: 1440, Inc: 1, num: func(c *Config) *float64 { return &c.AwayMinutes }},
-	{Name: "retry", Label: "retry after fail", Unit: "min", Help: "wait before trying a failed session again",
+	{Name: "retry", Label: "retry after fail", Unit: "min", Help: "wait before trying a failed or skipped session again",
 		Max: 1440, Inc: 5, num: func(c *Config) *float64 { return &c.RetryMinutes }},
-	{Name: "notify", Label: "notifications", Help: "a notification on each auto freeze",
+	{Name: "notify", Label: "notifications", Help: "a notification on each auto freeze or skipped freeze",
 		Choices: onOff, flag: func(c *Config) *bool { return &c.Notify }},
-	{Name: "tab-thaw", Label: "thaw on tab", Help: "selecting a frozen session's Terminal tab thaws it (macOS)",
+	{Name: "tab-thaw", Label: "thaw on tab", Help: "selecting an auto-frozen session's Terminal tab thaws it (macOS)",
 		Choices: onOff, flag: func(c *Config) *bool { return &c.TabThaw }},
-	{Name: "input-thaw", Label: "thaw on typing", Help: "typing into a frozen session's terminal thaws it (Linux)",
+	{Name: "input-thaw", Label: "thaw on typing", Help: "typing into an auto-frozen session's terminal thaws it (Linux)",
 		Choices: onOff, flag: func(c *Config) *bool { return &c.InputThaw }},
 }
 
