@@ -80,10 +80,16 @@ func TestPickSkipsGroupsItMustNotFreeze(t *testing.T) {
 	if got := pickName(t, groups, memWarn, nil, cfg, "/dev/focused"); got != "" {
 		t.Fatalf("Pick = %q, want none", got)
 	}
-	shell := idleGroup("shell", time.Hour, gib)
-	shell.Status = "shell"
-	if got := pickName(t, append(groups, shell), memWarn, nil, cfg, "/dev/focused"); got != "shell" {
-		t.Fatalf("Pick = %q, want shell (a session at its shell counts as unused)", got)
+}
+
+func TestPickTakesOnlyIdleSessions(t *testing.T) {
+	// shell: a background task still runs; waiting: blocked on the user.
+	for _, status := range []string{"shell", "waiting", "busy", ""} {
+		g := idleGroup("g", time.Hour, gib)
+		g.Status = status
+		if got := pickName(t, []freezer.GroupView{g}, memWarn, nil, Defaults(), ""); got != "" {
+			t.Errorf("status %q: Pick = %q, want none", status, got)
+		}
 	}
 }
 

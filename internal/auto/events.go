@@ -19,7 +19,7 @@ const maxLogBytes = 512 << 10
 // Event is one thing auto mode did.
 type Event struct {
 	Time   time.Time `json:"time"`
-	Action string    `json:"action"` // "froze" | "thawed" | "failed"
+	Action string    `json:"action"` // "froze" | "thawed" | "failed" | "skipped"
 	Name   string    `json:"name"`
 	Reason string    `json:"reason,omitempty"`
 	RSS    uint64    `json:"rss_bytes,omitempty"`
@@ -30,6 +30,8 @@ func (e Event) String() string {
 	switch e.Action {
 	case "failed":
 		return fmt.Sprintf("could not freeze %s: %s", e.Name, e.Error)
+	case "skipped":
+		return fmt.Sprintf("did not freeze %s: %s", e.Name, e.Reason)
 	case "froze":
 		return fmt.Sprintf("froze %s (%s, %s)", e.Name, e.Reason, human.Bytes(e.RSS))
 	}

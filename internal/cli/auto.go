@@ -108,6 +108,10 @@ func waitForService() {
 }
 
 func runAuto(api freezer.API) error {
+	aapi, ok := api.(auto.API)
+	if !ok {
+		return errors.New("auto mode needs a freezer that records who froze a group")
+	}
 	// Locked before signals are caught, so Ctrl+C still ends a loop that is waiting.
 	lock, err := auto.LockRun(func() {
 		fmt.Fprintf(os.Stderr, "%s auto: waiting, auto mode already runs elsewhere (stop it with '%s auto off')\n", prog.Name, prog.Name)
@@ -120,7 +124,7 @@ func runAuto(api freezer.API) error {
 	defer stop()
 	var sampler pressure.Sampler
 	r := auto.Runner{
-		API:    api,
+		API:    aapi,
 		Read:   pressure.Read,
 		CPU:    sampler.Sample,
 		Notify: auto.Notify,

@@ -38,7 +38,7 @@ type Group struct {
 	Swap      uint64 `json:"swap_bytes"`
 	Daemon    bool   `json:"daemon"`
 	Self      bool   `json:"self"`
-	Status    string `json:"status,omitempty"` // "busy" | "idle" | "shell" | "" (unknown)
+	Status    string `json:"status,omitempty"` // "busy" | "idle" | "shell" | "waiting" | "" (unknown); see sessions.Info
 	// StatusSince is when Status last changed; nil if unknown.
 	StatusSince *time.Time `json:"status_since,omitempty"`
 	TTY         string     `json:"tty,omitempty"` // "" if none; on Linux freezer.List fills it

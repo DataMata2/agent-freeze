@@ -13,36 +13,58 @@ import (
 	"time"
 
 	"github.com/DataMata2/agent-freeze/internal/freezer"
+	"github.com/DataMata2/agent-freeze/internal/human"
 	"github.com/DataMata2/agent-freeze/internal/pressure"
 )
 
 type fakeAPI struct {
-	mu      sync.Mutex
-	groups  []freezer.GroupView
-	lists   int
-	froze   []string
-	thawed  []string
-	failKey string
+	mu        sync.Mutex
+	groups    []freezer.GroupView
+	lists     int
+	froze     []string
+	frozeBy   []string
+	thawed    []string
+	failKey   string
+	swapFree  uint64                              // free swap Status reports; 0 means plenty
+	statusErr error                               // returned by Status
+	listHook  func(n int, gs []freezer.GroupView) // edits what the n-th List (from 1) returns
 }
 
 func (f *fakeAPI) List() ([]freezer.GroupView, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.lists++
-	return append([]freezer.GroupView(nil), f.groups...), nil
+	gs := append([]freezer.GroupView(nil), f.groups...)
+	if f.listHook != nil {
+		f.listHook(f.lists, gs)
+	}
+	return gs, nil
 }
 
-func (f *fakeAPI) Status() (freezer.Status, error) { return freezer.Status{}, nil }
+func (f *fakeAPI) Status() (freezer.Status, error) {
+	free := f.swapFree
+	if free == 0 {
+		free = 1 << 50
+	}
+	return freezer.Status{SwapFree: free}, f.statusErr
+}
 
-func (f *fakeAPI) Freeze(g freezer.GroupView, forceSelf bool) freezer.Result {
+// FreezeAs records the freeze and, unless g is failKey, marks g frozen by by.
+func (f *fakeAPI) FreezeAs(g freezer.GroupView, forceSelf bool, by string) freezer.Result {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if forceSelf {
 		panic("auto mode must never force-freeze its own group")
 	}
 	f.froze = append(f.froze, g.Name)
+	f.frozeBy = append(f.frozeBy, by)
 	if g.Key == f.failKey {
 		return freezer.Result{Name: g.Name, Error: "boom"}
+	}
+	for i := range f.groups {
+		if f.groups[i].Key == g.Key {
+			f.groups[i].State, f.groups[i].FrozenBy = "frozen", by
+		}
 	}
 	return freezer.Result{Name: g.Name, OK: true}
 }
@@ -192,11 +214,11 @@ func TestCheckReturnsReadErrors(t *testing.T) {
 
 func TestThawFocusedThawsEveryFrozenGroupOnThatTerminal(t *testing.T) {
 	frozen := idleGroup("frozen", time.Hour, gib)
-	frozen.State = "frozen"
+	frozen.State, frozen.FrozenBy = "frozen", "auto"
 	sibling := idleGroup("sibling", time.Hour, gib)
-	sibling.State, sibling.TTY = "partial", "/dev/frozen"
+	sibling.State, sibling.TTY, sibling.FrozenBy = "partial", "/dev/frozen", "auto"
 	other := idleGroup("other", time.Hour, gib)
-	other.State = "frozen"
+	other.State, other.FrozenBy = "frozen", "auto"
 	api := &fakeAPI{groups: []freezer.GroupView{other, frozen, sibling}}
 	rec := &recorder{}
 	if err := newRunner(api, calm, rec).ThawFocused(autoCfg(), "/dev/frozen"); err != nil {
@@ -231,7 +253,7 @@ func runInBackground(t *testing.T, run *Runner, path string) (chan<- string, fun
 
 func TestRunThawsOnFocusAndStopsWithTheContext(t *testing.T) {
 	frozen := idleGroup("frozen", time.Hour, gib)
-	frozen.State = "frozen"
+	frozen.State, frozen.FrozenBy = "frozen", "auto"
 	api := &fakeAPI{groups: []freezer.GroupView{frozen}}
 	path := filepath.Join(t.TempDir(), "auto.json")
 	if err := SaveConfig(path, autoCfg()); err != nil {
@@ -303,11 +325,142 @@ func TestCheckTakesTheRetryWaitFromSettings(t *testing.T) {
 
 func TestThawFocusedDoesNothingWithTabThawOff(t *testing.T) {
 	frozen := idleGroup("frozen", time.Hour, gib)
-	frozen.State = "frozen"
+	frozen.State, frozen.FrozenBy = "frozen", "auto"
 	api := &fakeAPI{groups: []freezer.GroupView{frozen}}
 	cfg := autoCfg()
 	cfg.TabThaw = false
 	if err := newRunner(api, calm, &recorder{}).ThawFocused(cfg, "/dev/frozen"); err != nil || len(api.thawed) != 0 || api.lists != 0 {
 		t.Fatalf("err=%v thawed=%v lists=%d", err, api.thawed, api.lists)
+	}
+}
+
+func TestCheckFreezesAsAuto(t *testing.T) {
+	api := &fakeAPI{groups: []freezer.GroupView{idleGroup("old", time.Hour, gib)}}
+	if err := newRunner(api, memWarn, &recorder{}).Check(autoCfg(), noFocus()); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(api.frozeBy, []string{"auto"}) {
+		t.Fatalf("froze by %q, want [auto]", api.frozeBy)
+	}
+}
+
+func TestCheckSkipsAGroupWithoutEnoughSwapAndBacksOff(t *testing.T) {
+	api := &fakeAPI{groups: []freezer.GroupView{idleGroup("big", time.Hour, gib)}, swapFree: 512 << 20}
+	rec := &recorder{}
+	run := newRunner(api, memWarn, rec)
+	clock := now
+	run.Now = func() time.Time { return clock }
+	for range 3 {
+		if err := run.Check(autoCfg(), noFocus()); err != nil {
+			t.Fatal(err)
+		}
+		clock = clock.Add(30 * time.Second)
+	}
+	if len(api.froze) != 0 {
+		t.Fatalf("froze %v without enough free swap", api.froze)
+	}
+	want := "not enough free swap: need " + human.Bytes(gib) + ", have " + human.Bytes(512<<20)
+	if len(rec.events) != 1 || rec.events[0].Action != "skipped" || rec.events[0].Reason != want || len(rec.notices) != 0 {
+		t.Fatalf("events %+v notices %v, want one skipped event %q", rec.events, rec.notices, want)
+	}
+	clock = now.Add(31 * time.Minute)
+	if err := run.Check(autoCfg(), noFocus()); err != nil {
+		t.Fatal(err)
+	}
+	if len(rec.events) != 2 || rec.events[1].Action != "skipped" {
+		t.Fatalf("events %+v, want a second skipped event after the retry wait", rec.events)
+	}
+}
+
+func TestCheckReturnsStatusErrorsWithoutFreezing(t *testing.T) {
+	api := &fakeAPI{groups: []freezer.GroupView{idleGroup("old", time.Hour, gib)}, statusErr: errors.New("no meminfo")}
+	if err := newRunner(api, memWarn, &recorder{}).Check(autoCfg(), noFocus()); err == nil || len(api.froze) != 0 {
+		t.Fatalf("err=%v froze=%v, want the status error and no freeze", err, api.froze)
+	}
+}
+
+func TestCheckWaitsOutACooldownAfterAFreeze(t *testing.T) {
+	for _, tc := range []struct {
+		interval float64
+		want     int
+	}{
+		{30, 3}, // cooldown 2*30s = 60s: freezes at 0, 60 and 120s
+		{5, 3},  // cooldown at least 60s
+		{60, 2}, // cooldown 2*60s = 120s: freezes at 0 and 120s
+	} {
+		var groups []freezer.GroupView
+		for _, n := range []string{"a", "b", "c", "d", "e"} {
+			groups = append(groups, idleGroup(n, time.Hour, gib))
+		}
+		api := &fakeAPI{groups: groups}
+		rec := &recorder{}
+		run := newRunner(api, memWarn, rec)
+		clock := now
+		run.Now = func() time.Time { return clock }
+		cfg := autoCfg()
+		cfg.IntervalSeconds = tc.interval
+		for range 5 {
+			if err := run.Check(cfg, noFocus()); err != nil {
+				t.Fatal(err)
+			}
+			clock = clock.Add(30 * time.Second)
+		}
+		if len(api.froze) != tc.want || len(rec.events) != tc.want {
+			t.Errorf("interval %vs: froze %v, events %d, want %d freezes over 5 checks 30s apart",
+				tc.interval, api.froze, len(rec.events), tc.want)
+		}
+	}
+}
+
+func TestCheckAfterTheCooldownFreezesOnlyIfPressureStillHolds(t *testing.T) {
+	api := &fakeAPI{groups: []freezer.GroupView{idleGroup("a", time.Hour, gib), idleGroup("b", time.Hour, gib)}}
+	run := newRunner(api, memWarn, &recorder{})
+	clock := now
+	run.Now = func() time.Time { return clock }
+	reading := memWarn
+	run.Read = func() (pressure.Reading, error) { return reading, nil }
+	if err := run.Check(autoCfg(), noFocus()); err != nil || len(api.froze) != 1 {
+		t.Fatalf("err=%v froze=%v, want one freeze", err, api.froze)
+	}
+	reading = calm
+	clock = clock.Add(time.Minute)
+	if err := run.Check(autoCfg(), noFocus()); err != nil || len(api.froze) != 1 {
+		t.Fatalf("err=%v froze=%v, want no second freeze once pressure is gone", err, api.froze)
+	}
+}
+
+func TestCheckRechecksTheGroupRightBeforeFreezing(t *testing.T) {
+	for name, change := range map[string]func(g *freezer.GroupView){
+		"busy":    func(g *freezer.GroupView) { g.Status = "busy" },
+		"frozen":  func(g *freezer.GroupView) { g.State = "frozen" },
+		"gone":    func(g *freezer.GroupView) { g.Key = "other-key" },
+		"waiting": func(g *freezer.GroupView) { g.Status = "waiting" },
+	} {
+		api := &fakeAPI{groups: []freezer.GroupView{idleGroup("old", time.Hour, gib)}}
+		api.listHook = func(n int, gs []freezer.GroupView) {
+			if n > 1 {
+				change(&gs[0])
+			}
+		}
+		rec := &recorder{}
+		if err := newRunner(api, memWarn, rec).Check(autoCfg(), noFocus()); err != nil {
+			t.Fatal(err)
+		}
+		if len(api.froze) != 0 || len(rec.events) != 0 {
+			t.Errorf("%s by the re-check: froze %v, events %+v, want nothing", name, api.froze, rec.events)
+		}
+	}
+}
+
+func TestThawFocusedLeavesAManuallyFrozenGroupFrozen(t *testing.T) {
+	manual := idleGroup("manual", time.Hour, gib)
+	manual.State = "frozen"
+	api := &fakeAPI{groups: []freezer.GroupView{manual}}
+	rec := &recorder{}
+	if err := newRunner(api, calm, rec).ThawFocused(autoCfg(), "/dev/manual"); err != nil {
+		t.Fatal(err)
+	}
+	if len(api.thawed) != 0 || len(rec.events) != 0 {
+		t.Fatalf("thawed %v, events %+v, want a manual freeze left alone", api.thawed, rec.events)
 	}
 }

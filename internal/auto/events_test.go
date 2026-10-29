@@ -43,9 +43,10 @@ func TestAppendEventStartsAFreshLogWhenItGrowsLarge(t *testing.T) {
 
 func TestEventString(t *testing.T) {
 	cases := map[string]Event{
-		"froze Review (memory pressure warn, 1.0G)": {Action: "froze", Name: "Review", Reason: "memory pressure warn", RSS: gib},
-		"thawed Review (tab selected)":              {Action: "thawed", Name: "Review", Reason: "tab selected"},
-		"could not freeze Review: boom":             {Action: "failed", Name: "Review", Error: "boom"},
+		"froze Review (memory pressure warn, 1.0G)":   {Action: "froze", Name: "Review", Reason: "memory pressure warn", RSS: gib},
+		"thawed Review (tab selected)":                {Action: "thawed", Name: "Review", Reason: "tab selected"},
+		"could not freeze Review: boom":               {Action: "failed", Name: "Review", Error: "boom"},
+		"did not freeze Review: not enough free swap": {Action: "skipped", Name: "Review", Reason: "not enough free swap"},
 	}
 	for want, e := range cases {
 		if got := e.String(); got != want {

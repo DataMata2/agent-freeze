@@ -68,7 +68,7 @@ func unused(g freezer.GroupView, cfg Config, focus Focus, now time.Time) bool {
 	switch {
 	case g.State != "running", !g.Delegated, g.Self, g.Daemon, cfg.Pinned(g):
 		return false
-	case g.Status != "idle" && g.Status != "shell":
+	case g.Status != "idle": // not "shell" (a background task runs) or "waiting" (blocked on you)
 		return false
 	case focus.TTY != "" && g.TTY == focus.TTY:
 		return false
