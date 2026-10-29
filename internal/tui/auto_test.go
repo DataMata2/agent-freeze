@@ -150,7 +150,7 @@ func TestPKeyPinsTheCurrentFilteredRow(t *testing.T) {
 	if visibleKeys(m) != "delta-key" {
 		t.Fatalf("visible = %q", visibleKeys(m))
 	}
-	m = press(t, m, "p")
+	press(t, m, "p")
 	cfg, _ := auto.LoadConfig(auto.DefaultPath())
 	if !slices.Equal(cfg.Pins, []string{"delta-key"}) {
 		t.Fatalf("pins = %v, want [delta-key]", cfg.Pins)
