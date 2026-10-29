@@ -35,7 +35,7 @@ not a terminal behaves like `afz list` (text).
 | `afz freeze <sel>... \| --all [--include-daemons] [--yes] --json` | `{"results":[Result...],"freed_bytes":N}` |
 | `afz thaw <sel>... \| --all --json` | `{"results":[Result...],"freed_bytes":0}` |
 | `afz status --json` | `{"frozen":N,"freed_bytes":N,"frozen_swap_bytes":N,"mem_available_bytes":N,"swap_free_bytes":N}` |
-| `afz auto [status] \| on \| off \| set <setting> <value> --json` | `{"mode":"manual\|auto","idle_minutes":N,"interval_seconds":N,"memory_level":"warn\|critical\|off","cpu_load":N,"cpu_use_percent":N,"away_minutes":N,"retry_minutes":N,"notify":B,"tab_thaw":B,"pins":[...],"service_running":B,"last_event":Event}` |
+| `afz auto [status] \| on \| off \| set <setting> <value> --json` | `{"mode":"manual\|auto","idle_minutes":N,"interval_seconds":N,"memory_level":"warn\|critical\|off","cpu_load":N,"cpu_use_percent":N,"away_minutes":N,"retry_minutes":N,"notify":B,"tab_thaw":B,"input_thaw":B,"pins":[...],"service_running":B,"last_event":Event}` |
 | `afz rename <name> --json` | `{"from":"<old path>","to":"<new path>"}` |
 | `afz version --json` | `{"version":"..."}` |
 
@@ -45,7 +45,7 @@ A `list` query keeps groups whose name, cwd, agent or `id` contains it
 
 **Group:** `id` (root PID as string), `key`, `agent`, `name`, `session_id`
 (optional), `cwd`, `root_pid`, `start_time`, `pids`, `rss_bytes`, `swap_bytes`,
-`daemon`, `self`, `status` (`busy` | `idle` | `shell`; omitted if unknown),
+`daemon`, `self`, `status` (`busy` | `idle` | `shell` | `waiting`; omitted if unknown),
 `status_since` (optional, RFC 3339: when `status` last changed), `tty`
 (optional, the agent's terminal), `state` (`running` | `frozen` | `partial`), `frozen_at` (optional, RFC 3339),
 `frozen_by` (optional, `"auto"` when auto mode froze it), `freed_bytes`, `delegated`.
@@ -55,15 +55,47 @@ A `list` query keeps groups whose name, cwd, agent or `id` contains it
 
 **Settings** for `auto set`: `idle`, `interval`, `memory` (`warn` | `critical` |
 `off`), `cpu-load` (0 = off), `cpu-use`, `away`, `retry`, `notify` (`on` |
-`off`), `tab-thaw` (`on` | `off`). A bad value is a usage error that names the
+`off`), `tab-thaw` (`on` | `off`, macOS), `input-thaw` (`on` | `off`, Linux).
+A bad value is a usage error that names the
 allowed range.
 
-**Event:** `time`, `action` (`froze` | `thawed` | `failed`), `name`, `reason`
+**Event:** `time`, `action` (`froze` | `thawed` | `failed` | `skipped`), `name`, `reason`
 (optional), `rss_bytes` (optional), `error` (optional). `last_event` and
 `pins` are omitted when empty.
 
 Errors: usage errors print `{"error":"..."}`; an operation error (e.g. not
 enough swap) also prints `{"error":"..."}`.
+
+## Auto mode
+
+A background service (launchd agent on macOS, systemd user unit
+`agent-freeze-auto.service` on Linux) checks every `interval` seconds and,
+under memory or CPU pressure, freezes at most one unused session per check.
+
+- Only `"status": "idle"` sessions qualify. `shell` (no turn runs, but a
+  background Bash or Monitor task does), `waiting` (blocked on the
+  user), `busy`, unknown status, `self`, daemons, pinned groups and groups
+  not `running` are never auto-frozen. So the CPU path rarely finds a
+  candidate: an idle session seldom uses much CPU.
+- Before a freeze it lists again and re-checks the group. On Linux a session
+  with typed input it has not read yet is left alone. If free swap is
+  smaller than its RAM it logs a `skipped` event (and notifies). Either way
+  that session is tried again after `retry` minutes.
+- After an auto freeze it waits max(2 intervals, 60 s), counted from the
+  newest auto freeze (also one from before a restart), and then needs a new
+  reading that still shows pressure.
+- Groups it froze have `"frozen_by": "auto"`. Tab-thaw (macOS) and
+  input-thaw (Linux) thaw only those; a manual freeze is never auto-thawed,
+  and freezing an auto-frozen group by hand makes it a manual freeze.
+- On Linux, input-thaw (default on) watches the ptys of auto-frozen sessions
+  and thaws on any input byte (raw mode): typing, pastes, mouse events and
+  terminal focus reports; idle time then starts again. A session also counts
+  as used when it last read input from its pty (the pty's atime, in 8-second
+  steps; any input it reads counts, terminal replies too). `away` applies on
+  macOS only.
+- Notifications use `notify-send` on Linux; without it the service warns once
+  on stderr and sends none. The unit copies `CLAUDE_CONFIG_DIR` and
+  `AFZ_NO_BANNER=1` from the environment of `afz auto on` when set.
 
 ## Exit codes
 

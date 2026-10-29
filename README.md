@@ -78,7 +78,7 @@ afz
 
 The header shows the mode (manual or auto), available RAM, free swap, the
 frozen count and total freed memory. Each row is one agent group with its state (running, frozen, partial),
-status (busy, idle, shell), RAM, swap and process count. Your own group is
+status (busy, idle, shell, waiting), RAM, swap and process count. Your own group is
 marked `(you)`.
 
 | Key | Action |
@@ -188,10 +188,10 @@ check.
 | `cpu-load` | `1` | load per CPU core that starts freezing; `0` turns the CPU check off |
 | `cpu-use` | `10` | % of one core an unused session must use to be frozen for CPU |
 | `away` | `5` | minutes a session must be unused while the selected tab is unknown (macOS) |
-| `retry` | `30` | minutes before a session that failed to freeze is tried again |
-| `notify` | `on` | a notification on each auto freeze |
-| `tab-thaw` | `on` | selecting a frozen session's Terminal tab thaws it (macOS) |
-| `input-thaw` | `on` | typing into a frozen session's terminal thaws it (Linux) |
+| `retry` | `30` | minutes before a session that failed to freeze, or was skipped, is tried again |
+| `notify` | `on` | a notification on each auto freeze or skipped freeze |
+| `tab-thaw` | `on` | selecting an auto-frozen session's Terminal tab thaws it (macOS) |
+| `input-thaw` | `on` | typing into an auto-frozen session's terminal thaws it (Linux) |
 
 `auto off` does not thaw what auto mode froze; thaw those with `u` or
 `afz thaw`.
@@ -199,38 +199,86 @@ check.
 At each check it reads the memory pressure (macOS
 `kern.memorystatus_vm_pressure_level`, Linux `/proc/pressure/memory`) and the
 load. Under memory pressure it freezes one unused session, the one unused the
-longest (then the largest), and checks again next time, until the pressure is
-back to normal. When the CPU is busy, it freezes the unused session that uses
-the most CPU. One session per check, never more.
+longest (then the largest). When the CPU is busy, it freezes the unused
+session that uses the most CPU. One session per check, never more.
 
-A session is unused when it is idle or at the shell prompt for at least the
-idle time, counted from its last turn, from when you last had its tab
-selected, or (on Linux) from when it last read what you typed into its
-terminal, whichever is later. A session it fails to freeze is left alone for
-the retry time. Auto mode never freezes a busy session, the session running it, a
+A session is unused when Claude Code reports it `idle` for at least the idle
+time, counted from its last turn, from when you last had its tab selected
+(macOS), or from when it last read input from its terminal (Linux),
+whichever is later. Only `idle` counts: a session at `shell` (no turn runs,
+but a background Bash or Monitor task does) or `waiting` (blocked on you) is
+never frozen. Neither is a busy session, the session running `afz`, a
 daemon, a pinned session (`p` in the TUI), or an agent with no status (only
 Claude Code reports one). Sessions running a dev server are not exempt: pin
-them if they must keep running.
+them if they must keep running. Since an idle session rarely uses much CPU,
+the CPU trigger seldom finds one to freeze; memory pressure is the main
+trigger.
 
-On macOS, auto mode also watches Apple Terminal: the session in the selected
-tab is never frozen, and a frozen session thaws as soon as you select its tab.
-The first time, macOS asks whether `afz` may control Terminal; allow it. While
-the tab cannot be read (permission denied, another app in front), a
-session must also be unused for the away time. Inside tmux, or in
-another terminal app, the selected tab cannot be matched to a session: pin
-the sessions you are working in, or raise the idle time. Each auto freeze
-shows a notification (`notify-send` on Linux).
+Right before a freeze, auto mode lists the sessions again and checks the
+chosen one once more, since it may have started a turn. If free swap is
+smaller than the session's RAM it skips the freeze, logs it, and notifies
+you; a session it skips or fails to freeze is left alone for the retry
+time. After an auto freeze it waits two check intervals, and at least 60
+seconds, so the freed memory shows in the next reading, and freezes again
+only if that reading still shows pressure. This wait also covers a freeze
+made before the service restarted.
 
-On Linux, auto mode watches the terminals of the sessions it froze: as soon
-as you type into one, that session thaws and reads what you typed (turn this
-off with `afz auto set input-thaw off`). It only looks at whether unread input
-is waiting and never reads it, so nothing you type is lost. Input counts as
-soon as one byte arrives in raw mode, which agents use; in a terminal in
-canonical (line) mode it counts only after Enter. Anything the
-terminal sends counts as typing: pastes, mouse events, and the focus reports
-some terminals send when you switch to their window. A session with typed
-input it has not read yet is never frozen. Only sessions auto mode froze thaw
-this way; a manual freeze stays until `u` or `afz thaw`.
+`afz list --json` shows `"frozen_by": "auto"` on sessions auto mode froze.
+Only those thaw by themselves (tab on macOS, typing on Linux). A manual
+freeze stays until `u` or `afz thaw`, and freezing an auto-frozen session by
+hand makes it a manual freeze.
+
+#### On macOS
+
+Auto mode also watches Apple Terminal: the session in the selected tab is
+never frozen, and a session it froze thaws as soon as you select its tab.
+The first time, macOS asks whether `afz` may control Terminal; allow it.
+While the tab cannot be read (permission denied, another app in front), a
+session must also be unused for the away time. Inside tmux, or in another
+terminal app, the selected tab cannot be matched to a session: pin the
+sessions you are working in, or raise the idle time. Notifications use
+`osascript`.
+
+#### On Linux
+
+Auto mode watches the terminals of the sessions it froze: as soon as you
+type into one, that session thaws and reads what you typed, and its idle
+time starts again (turn this off with `afz auto set input-thaw off`). It
+only looks at whether unread input is waiting and never reads it, so
+nothing you type is lost. Input counts as soon as one byte arrives in raw
+mode, which agents use; in a terminal in canonical (line) mode it counts
+only after Enter. Anything the terminal sends counts as typing: pastes,
+mouse events, and the focus reports some terminals send when you switch to
+their window. A session with typed input it has not read yet is never
+frozen.
+
+Typing into a running session counts as use too: the kernel records when a
+terminal was last read from (in 8-second steps), so idle time counts from
+the last time the agent read input. Any input the agent reads counts,
+including replies the terminal sends to its queries. There is no tab
+detection on Linux, so the `away` setting does not apply.
+
+Notifications use `notify-send`; if it is not installed, the service warns
+once in its log and sends none. The systemd unit restarts the service 5
+seconds after a failure. `afz auto on` writes `CLAUDE_CONFIG_DIR` and
+`AFZ_NO_BANNER=1` into the unit when they are set in its environment; after
+changing either, run `afz auto on` again. The service log is
+`journalctl --user -u agent-freeze-auto.service`.
+
+#### Not covered
+
+- No window manager integration on Linux: auto mode does not know which
+  window has focus. Switching to a terminal thaws its session only through
+  the input the terminal sends (a focus report, if the agent asked for
+  them). Thawing on window focus (for example under Hyprland) is a possible
+  follow-up.
+- A session you thaw with `u` or `afz thaw`, without typing into it, may be
+  auto-frozen again after the cooldown if the pressure holds and it stays
+  idle. Pin it, or type into it.
+- Auto freezes made by a version without `frozen_by` look manual after an
+  upgrade and never thaw by themselves; thaw them with `u` or `afz thaw`.
+
+#### The service
 
 The service is a launchd agent on macOS
 (`~/Library/LaunchAgents/io.github.datamata2.agent-freeze.auto.plist`) and a
