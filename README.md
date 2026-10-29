@@ -226,7 +226,9 @@ made before the service restarted.
 `afz list --json` shows `"frozen_by": "auto"` on sessions auto mode froze.
 Only those thaw by themselves (tab on macOS, typing on Linux). A manual
 freeze stays until `u` or `afz thaw`, and freezing an auto-frozen session by
-hand makes it a manual freeze.
+hand makes it a manual freeze. Thawing an auto-frozen session with `u` or
+`afz thaw` starts its idle time again at the next check, so it is not frozen
+again at once.
 
 #### On macOS
 
@@ -272,9 +274,9 @@ changing either, run `afz auto on` again. The service log is
   the input the terminal sends (a focus report, if the agent asked for
   them). Thawing on window focus (for example under Hyprland) is a possible
   follow-up.
-- A session you thaw with `u` or `afz thaw`, without typing into it, may be
+- A session with no terminal that you thaw with `u` or `afz thaw` may be
   auto-frozen again after the cooldown if the pressure holds and it stays
-  idle. Pin it, or type into it.
+  idle; pin it. (With a terminal, its idle time starts again.)
 - Auto freezes made by a version without `frozen_by` look manual after an
   upgrade and never thaw by themselves; thaw them with `u` or `afz thaw`.
 

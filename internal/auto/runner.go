@@ -63,6 +63,9 @@ type Runner struct {
 	frozeAt time.Time            // when auto mode last froze a group
 	// futureSeen is when Check first saw a freeze time after its clock.
 	futureSeen time.Time
+	// autoKeys maps the key of each group auto mode froze, as last seen, to its tty;
+	// nil until Run first looks.
+	autoKeys map[string]string
 }
 
 // Check runs one auto-mode check and freezes at most one group.
@@ -130,11 +133,39 @@ func (r *Runner) Check(cfg Config, focus Focus) error {
 		r.backOff(g.Key, now)
 	} else {
 		r.frozeAt = now
+		if r.autoKeys == nil {
+			r.autoKeys = map[string]string{}
+		}
+		r.autoKeys[g.Key] = g.TTY
 		if cfg.Notify {
 			r.Notify(prog.Name, ev.String())
 		}
 	}
 	r.Log(ev)
+	return nil
+}
+
+// noteThaws restarts the idle time of each group auto mode froze that runs again
+// although Run did not thaw it (u or afz thaw), as typing into it would.
+// It lists only while such groups may exist.
+func (r *Runner) noteThaws(focus Focus, now time.Time) error {
+	if r.autoKeys != nil && len(r.autoKeys) == 0 {
+		return nil
+	}
+	groups, err := r.API.List()
+	if err != nil {
+		return err
+	}
+	seen := map[string]string{}
+	for _, g := range groups {
+		if tty, ok := r.autoKeys[g.Key]; ok && tty != "" && g.State == "running" {
+			focus.LeftAt[tty] = now
+		}
+		if autoFrozen(g) {
+			seen[g.Key] = g.TTY
+		}
+	}
+	r.autoKeys = seen
 	return nil
 }
 
@@ -226,6 +257,8 @@ func (r *Runner) thawTTY(tty, reason string) error {
 		ev := Event{Time: r.Now(), Action: "thawed", Name: g.Name, Reason: reason}
 		if res := r.API.Thaw(g); !res.OK {
 			ev.Action, ev.Error = "failed", res.Error
+		} else {
+			delete(r.autoKeys, g.Key) // Run thawed it: not a thaw by hand
 		}
 		r.Log(ev)
 	}
@@ -321,7 +354,7 @@ func (r *Runner) Run(ctx context.Context, cfgPath string, tabs <-chan string, in
 			clear(tried)
 			cfg, err := LoadConfig(cfgPath)
 			if err == nil {
-				err = errors.Join(r.Check(cfg, focus), r.offerTTYs(cfg, input, tried))
+				err = errors.Join(r.noteThaws(focus, r.Now()), r.Check(cfg, focus), r.offerTTYs(cfg, input, tried))
 			}
 			report(err)
 			timer.Reset(checkEvery(cfg))

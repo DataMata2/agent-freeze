@@ -87,6 +87,8 @@ under memory or CPU pressure, freezes at most one unused session per check.
 - Groups it froze have `"frozen_by": "auto"`. Tab-thaw (macOS) and
   input-thaw (Linux) thaw only those; a manual freeze is never auto-thawed,
   and freezing an auto-frozen group by hand makes it a manual freeze.
+  Thawing an auto-frozen group by hand (`thaw`) restarts its idle time at
+  the next check (groups with a pty only).
 - On Linux, input-thaw (default on) watches the ptys of auto-frozen sessions
   and thaws on any input byte (raw mode): typing, pastes, mouse events and
   terminal focus reports; idle time then starts again. A session also counts

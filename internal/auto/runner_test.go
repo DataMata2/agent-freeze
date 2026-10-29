@@ -827,3 +827,41 @@ func TestRunDoesNotSpinOnInputThawsThatFail(t *testing.T) {
 		t.Fatalf("%d thaw tries, want 2 or 3: %v", len(got), got[:min(len(got), 10)])
 	}
 }
+
+func TestRunRestartsIdleTimeWhenAnAutoFreezeIsThawedByHand(t *testing.T) {
+	fastChecks(t)
+	at := now.Add(-time.Hour) // long past the cooldown
+	frozen := idleGroup("frozen", time.Hour, gib)
+	frozen.State, frozen.FrozenBy, frozen.FrozenAt = "frozen", "auto", &at
+	api := &fakeAPI{groups: []freezer.GroupView{frozen}}
+	path := filepath.Join(t.TempDir(), "auto.json")
+	if err := SaveConfig(path, autoCfg()); err != nil {
+		t.Fatal(err)
+	}
+	clock := &syncClock{at: now}
+	run := newRunner(api, memWarn, &recorder{})
+	run.Now, run.Log, run.Notify = clock.now, func(Event) {}, func(string, string) {}
+	in, _ := fakeInput()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- run.Run(ctx, path, nil, in) }()
+	nextSet(t, in)
+	nextSet(t, in)
+	// Thawed with u or afz thaw, not by Run.
+	api.mu.Lock()
+	api.groups[0].State, api.groups[0].FrozenBy, api.groups[0].FrozenAt = "running", "", nil
+	api.mu.Unlock()
+	clock.add(3 * time.Minute) // past the cooldown, short of the idle time
+	for range 5 {
+		nextSet(t, in)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	api.mu.Lock()
+	defer api.mu.Unlock()
+	if len(api.froze) != 0 {
+		t.Fatalf("froze %v right after a manual thaw; want its idle time to start again", api.froze)
+	}
+}
