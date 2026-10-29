@@ -27,6 +27,8 @@ Always pass `--json`; each call prints one JSON object on stdout.
 | `afz freeze --all --json` | same; skips your own group and daemons |
 | `afz thaw <sel>... --json` or `afz thaw --all --json` | `{"results":[Result...],"freed_bytes":0}` |
 | `afz status --json` | `{"frozen":N,"freed_bytes":N,"frozen_swap_bytes":N,"mem_available_bytes":N,"swap_free_bytes":N}` |
+| `afz auto --json` | auto mode: `mode` (`manual` \| `auto`), every setting, `service_running`, `last_event` |
+| `afz auto on \| off --json`, `afz auto set <setting> <value> --json` | same, after the change |
 | `afz rename <name> --json` | `{"from":"<old path>","to":"<new path>"}` |
 | `afz version --json` | `{"version":"..."}` |
 
@@ -35,7 +37,8 @@ A selector is a group `id`, a `key`, or a case-insensitive substring of
 
 Group fields that matter: `id`, `name`, `cwd`, `rss_bytes`, `swap_bytes`,
 `state` (`running` | `frozen` | `partial`), `status` (`busy` | `idle` |
-`shell`; omitted if unknown), `daemon`, `self`, `frozen_at`, `freed_bytes`.
+`shell` | `waiting`; omitted if unknown), `daemon`, `self`, `frozen_at`,
+`frozen_by` (`"auto"` when auto mode froze it), `freed_bytes`.
 
 Result fields: `id`, `key`, `name`, `ok`, `error`, `warning`, `rss_before`,
 `rss_after`, `swap_after`.
@@ -64,6 +67,10 @@ at least one target failed (see `ok` and `error`) or the operation failed;
 - If free swap is smaller than the targets' RAM, `freeze` fails. Add `--yes`
   only if the user accepts that RAM will not be freed.
 - Never run `rename` unless the user asked for that name.
+- Never run `auto on`, `auto off` or `auto set` unless the user asked. Auto
+  mode freezes the user's unused (`idle`) sessions by itself under memory or
+  CPU pressure, and by default thaws a session it froze when the user
+  selects its tab (macOS) or types into it (Linux).
 
 ## What frozen means
 

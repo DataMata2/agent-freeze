@@ -31,6 +31,8 @@ type Entry struct {
 	RSSBefore uint64         `json:"rss_before"`
 	Freed     uint64         `json:"freed_bytes"`
 	Origins   map[int]string `json:"origins"` // pid -> origin cgroup
+	// By is "auto" when auto mode froze the group and "" for a manual freeze.
+	By string `json:"by,omitempty"`
 
 	// macOS only, where a freeze stops processes with signals.
 	RootPID int            `json:"root_pid,omitempty"`

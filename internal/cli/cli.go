@@ -8,6 +8,7 @@ import (
 	"slices"
 	"strings"
 
+	"github.com/DataMata2/agent-freeze/internal/auto"
 	"github.com/DataMata2/agent-freeze/internal/discover"
 	"github.com/DataMata2/agent-freeze/internal/freezer"
 	"github.com/DataMata2/agent-freeze/internal/human"
@@ -18,7 +19,7 @@ import (
 var Version = "dev"
 
 // usageHint and helpText take the command name (prog.Name) as %[1]s.
-const usageHint = "usage: %[1]s {list|freeze|thaw|status|rename|version|help} [flags] [selector|query...]; see '%[1]s help'"
+const usageHint = "usage: %[1]s {list|freeze|thaw|status|auto|rename|version|help} [flags] [selector|query...]; see '%[1]s help'"
 
 const helpText = `%[1]s - freeze idle coding agents to free RAM
 
@@ -29,6 +30,7 @@ commands:
   freeze    freeze the selected groups and free their RAM
   thaw      thaw the selected groups
   status    show frozen totals and system memory
+  auto      auto mode: 'auto on', 'auto off', 'auto set <setting> <value>', 'auto' lists them
   rename    rename this command, e.g. '%[1]s rename chill'
   version   print the version
   help      show this help (also -h, --help)
@@ -52,6 +54,7 @@ var validFlags = map[string][]string{
 	"freeze":  {"--json", "--all", "--include-daemons", "--yes", "--force-self"},
 	"thaw":    {"--json", "--all"},
 	"status":  {"--json"},
+	"auto":    {"--json"},
 	"rename":  {"--json"},
 	"version": {"--json"},
 	"help":    {},
@@ -60,8 +63,9 @@ var validFlags = map[string][]string{
 }
 
 // takesArgs reports which commands accept positional arguments: selectors
-// for freeze and thaw, queries for list, the new name for rename.
-var takesArgs = map[string]bool{"freeze": true, "thaw": true, "list": true, "rename": true}
+// for freeze and thaw, queries for list, the new name for rename, the
+// subcommand and its arguments for auto.
+var takesArgs = map[string]bool{"freeze": true, "thaw": true, "list": true, "rename": true, "auto": true}
 
 type opts struct {
 	json, all, includeDaemons, yes, forceSelf, allProcs bool
@@ -74,9 +78,15 @@ func (e usageError) Error() string { return e.msg }
 
 func usagef(format string, a ...any) error { return usageError{fmt.Sprintf(format, a...)} }
 
+// API is what the commands need: the freezer surface plus auto mode's FreezeAs.
+type API interface {
+	freezer.API
+	auto.API
+}
+
 // Run executes afz with args (excluding the program name) and returns the
 // process exit code: 0 success, 1 operation failure, 2 usage error.
-func Run(args []string, api freezer.API, stdout, stderr io.Writer) int {
+func Run(args []string, api API, stdout, stderr io.Writer) int {
 	o := &output{stdout: stdout, stderr: stderr, json: slices.Contains(args, "--json")}
 	err := dispatch(args, api, o)
 	if err == nil {
@@ -94,7 +104,7 @@ func Run(args []string, api freezer.API, stdout, stderr io.Writer) int {
 	return 1
 }
 
-func dispatch(args []string, api freezer.API, o *output) error {
+func dispatch(args []string, api API, o *output) error {
 	if len(args) == 0 {
 		return usagef("missing command")
 	}
@@ -134,6 +144,8 @@ func dispatch(args []string, api freezer.API, o *output) error {
 			fmt.Fprintf(o.stdout, "%s %s\n", prog.Name, Version)
 		}
 		return nil
+	case "auto":
+		return autoCmd(sels, api, o)
 	case "rename":
 		if len(sels) != 1 {
 			return usagef("rename: give exactly one new name")

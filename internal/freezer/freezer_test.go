@@ -976,3 +976,111 @@ func TestHousekeepRemovesStaleInProgressCgroup(t *testing.T) {
 		t.Error("stale in-progress state entry not pruned")
 	}
 }
+
+// freezeAs102 freezes the base fixture's group 102 as by with the kernel
+// simulated and returns the group as listed afterwards.
+func freezeAs102(t *testing.T, e *env, by string) GroupView {
+	t.Helper()
+	put(t, e.keyDir(key102)+"/cgroup.events", "frozen 1\n")
+	e.simulateKernel(t, nil)
+	if r := e.f.FreezeAs(e.group(t, 102), true, by); !r.OK {
+		t.Fatalf("FreezeAs(%q) = %+v", by, r)
+	}
+	return e.group(t, 102)
+}
+
+func TestFreezeAsRecordsBy(t *testing.T) {
+	for _, by := range []string{"auto", ""} {
+		e := newEnv(t)
+		g := freezeAs102(t, e, by)
+		if g.State != "frozen" || g.FrozenBy != by {
+			t.Errorf("by %q: State %q FrozenBy %q", by, g.State, g.FrozenBy)
+		}
+		if got := entries(t, e.f.Store)[key102].By; got != by {
+			t.Errorf("by %q: entry By = %q", by, got)
+		}
+		put(t, e.keyDir(key102)+"/cgroup.events", "frozen 0\n")
+		if r := e.f.Thaw(g); !r.OK {
+			t.Fatalf("Thaw = %+v", r)
+		}
+		if _, ok := entries(t, e.f.Store)[key102]; ok {
+			t.Errorf("by %q: state entry not deleted", by)
+		}
+		if g := e.group(t, 102); g.FrozenBy != "" {
+			t.Errorf("by %q: FrozenBy %q after thaw", by, g.FrozenBy)
+		}
+	}
+}
+
+func TestFreezeIsManual(t *testing.T) {
+	e := newEnv(t)
+	put(t, e.keyDir(key102)+"/cgroup.events", "frozen 1\n")
+	e.simulateKernel(t, nil)
+	if r := e.f.Freeze(e.group(t, 102), true); !r.OK {
+		t.Fatalf("Freeze = %+v", r)
+	}
+	if g := e.group(t, 102); g.State != "frozen" || g.FrozenBy != "" {
+		t.Errorf("State %q FrozenBy %q", g.State, g.FrozenBy)
+	}
+}
+
+// setBy rewrites the By of the state entry for key.
+func setBy(t *testing.T, s state.Store, key, by string) {
+	t.Helper()
+	if err := s.Update(func(m map[string]state.Entry) error {
+		e := m[key]
+		e.By = by
+		m[key] = e
+		return nil
+	}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestListFrozenByPartial(t *testing.T) {
+	e := listFixture(t)
+	setBy(t, e.f.Store, "claude-302-7000", "auto")
+	if g := e.group(t, 302); g.State != "partial" || g.FrozenBy != "auto" {
+		t.Errorf("State %q FrozenBy %q", g.State, g.FrozenBy)
+	}
+}
+
+// A manual freeze takes over an auto freeze; an auto freeze never takes
+// over a manual one.
+func TestRefreezeOwner(t *testing.T) {
+	cases := []struct{ prev, by, want string }{
+		{"auto", "", ""},
+		{"", "auto", ""},
+		{"auto", "auto", "auto"},
+	}
+	for _, c := range cases {
+		e := listFixture(t)
+		key, cg := "claude-302-7000", testBase+"/claude-302-7000"
+		setBy(t, e.f.Store, key, c.prev)
+		e.simulateKernel(t, nil)
+		put(t, e.dir(cg)+"/cgroup.events", "frozen 1\n")
+		if r := e.f.FreezeAs(e.group(t, 302), false, c.by); !r.OK {
+			t.Fatalf("FreezeAs = %+v", r)
+		}
+		if g := e.group(t, 302); g.State != "frozen" || g.FrozenBy != c.want {
+			t.Errorf("prev %q by %q: State %q FrozenBy %q, want frozen %q", c.prev, c.by, g.State, g.FrozenBy, c.want)
+		}
+	}
+}
+
+func TestFreezeAlreadyFrozenManualTakesOver(t *testing.T) {
+	e := newEnv(t)
+	freezeAs102(t, e, "auto")
+	if r := e.f.FreezeAs(e.group(t, 102), true, "auto"); !r.OK || r.Warning != "already frozen" {
+		t.Fatalf("FreezeAs auto again = %+v", r)
+	}
+	if g := e.group(t, 102); g.FrozenBy != "auto" {
+		t.Errorf("FrozenBy %q after auto refreeze, want auto", g.FrozenBy)
+	}
+	if r := e.f.Freeze(e.group(t, 102), true); !r.OK || r.Warning != "already frozen" {
+		t.Fatalf("Freeze = %+v", r)
+	}
+	if g := e.group(t, 102); g.FrozenBy != "" {
+		t.Errorf("FrozenBy %q after manual freeze, want empty", g.FrozenBy)
+	}
+}

@@ -58,25 +58,25 @@ var (
 	rawWrite = syscall.Write
 )
 
-// isTTYPath reports whether p is a clean /dev/pts/N or /dev/ttyX path.
+// IsTTYPath reports whether p is a clean /dev/pts/N or /dev/ttyX path.
 // "/dev/tty" itself is excluded: it means the caller's own terminal.
-func isTTYPath(p string) bool {
+func IsTTYPath(p string) bool {
 	return (strings.HasPrefix(p, ptsPrefix) && len(p) > len(ptsPrefix) ||
 		strings.HasPrefix(p, ttyPrefix) && len(p) > len(ttyPrefix)) && filepath.Clean(p) == p
 }
 
-// checkTTY refuses any path that is not a clean /dev/pts/* or /dev/tty*
+// CheckTTY refuses any path that is not a clean /dev/pts/* or /dev/tty*
 // path naming a character device.
-func checkTTY(tty string) error {
-	if !isTTYPath(tty) {
-		return fmt.Errorf("refusing to write to %q: not a terminal path", tty)
+func CheckTTY(tty string) error {
+	if !IsTTYPath(tty) {
+		return fmt.Errorf("%q is not a terminal path", tty)
 	}
 	var st syscall.Stat_t
 	if err := syscall.Stat(tty, &st); err != nil {
 		return &os.PathError{Op: "stat", Path: tty, Err: err}
 	}
 	if st.Mode&syscall.S_IFMT != syscall.S_IFCHR {
-		return fmt.Errorf("refusing to write to %q: not a character device", tty)
+		return fmt.Errorf("%q is not a character device", tty)
 	}
 	return nil
 }
@@ -86,7 +86,7 @@ func checkTTY(tty string) error {
 // only to /dev/pts/* or /dev/tty* character devices and never blocks: if
 // the terminal is not accepting output, it gives up and returns nil.
 func ShowFrozen(tty, name string, at time.Time) error {
-	if err := checkTTY(tty); err != nil {
+	if err := CheckTTY(tty); err != nil {
 		return err
 	}
 	return showFrozen(tty, name, at)
@@ -95,7 +95,7 @@ func ShowFrozen(tty, name string, at time.Time) error {
 // ClearFrozen erases the bottom row written by ShowFrozen and sets the
 // window title back to name. The same path rules as ShowFrozen apply.
 func ClearFrozen(tty, name string) error {
-	if err := checkTTY(tty); err != nil {
+	if err := CheckTTY(tty); err != nil {
 		return err
 	}
 	return clearFrozen(tty, name)

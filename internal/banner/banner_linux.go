@@ -30,7 +30,7 @@ func TTY(proc procfs.FS, pid int) string {
 	for fd := 0; fd <= maxFDToCheck; fd++ {
 		link := filepath.Join(dir, strconv.Itoa(fd))
 		target, err := os.Readlink(link)
-		if err == nil && isTTYPath(target) && sameFile(link, target) {
+		if err == nil && IsTTYPath(target) && sameFile(link, target) {
 			return target
 		}
 	}

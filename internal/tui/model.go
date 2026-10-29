@@ -9,6 +9,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 
+	"github.com/DataMata2/agent-freeze/internal/auto"
 	"github.com/DataMata2/agent-freeze/internal/freezer"
 	"github.com/DataMata2/agent-freeze/internal/human"
 )
@@ -27,8 +28,10 @@ const selfRefusal = "that's this agent's own session — use the CLI with --forc
 const hiddenRefusal = "selected rows are hidden by the filter"
 
 // Run runs the TUI in the alternate screen until the user quits.
-func Run(api freezer.API) error {
-	_, err := tea.NewProgram(newModel(api), tea.WithAltScreen()).Run()
+func Run(api freezer.API, setAuto func(on bool) error) error {
+	m := newModel(api)
+	m.setAuto = setAuto
+	_, err := tea.NewProgram(m, tea.WithAltScreen()).Run()
 	return err
 }
 
@@ -49,9 +52,17 @@ type pendingFreeze struct {
 }
 
 type refreshMsg struct {
-	groups []freezer.GroupView
-	status freezer.Status
-	err    error
+	groups   []freezer.GroupView
+	status   freezer.Status
+	err      error
+	auto     auto.Config
+	autoErr  error
+	lastAuto string
+}
+
+type settingsMsg struct {
+	text string
+	err  error
 }
 
 type tickMsg struct{}
@@ -81,10 +92,18 @@ type model struct {
 	width     int
 	height    int
 	err       error
+	auto      auto.Config
+	lastAuto  string
+	setAuto   func(on bool) error
+
+	settings  bool // the settings screen is open
+	setCursor int
+	editing   bool // typing a value on the settings screen
+	input     string
 }
 
 func newModel(api freezer.API) model {
-	return model{api: api, selected: map[string]bool{}}
+	return model{api: api, selected: map[string]bool{}, auto: auto.Defaults()}
 }
 
 func (m model) Init() tea.Cmd {
@@ -102,7 +121,42 @@ func (m model) refreshCmd() tea.Cmd {
 		if err != nil {
 			return refreshMsg{err: err}
 		}
-		return refreshMsg{groups: groups, status: st}
+		msg := refreshMsg{groups: groups, status: st}
+		msg.auto, msg.autoErr = auto.LoadConfig(auto.DefaultPath())
+		if e, ok := auto.LastEvent(auto.LogPath()); ok {
+			msg.lastAuto = e.Time.Local().Format("Jan 2 15:04") + " " + e.String()
+		}
+		return msg
+	}
+}
+
+func (m model) modeCmd() tea.Cmd {
+	on, setAuto := m.auto.Mode != "auto", m.setAuto
+	return func() tea.Msg {
+		if err := setAuto(on); err != nil {
+			return settingsMsg{err: err}
+		}
+		if on {
+			return settingsMsg{text: "auto mode on: unused sessions are frozen when memory or CPU runs short"}
+		}
+		return settingsMsg{text: "auto mode off"}
+	}
+}
+
+func pinCmd(g freezer.GroupView) tea.Cmd {
+	return func() tea.Msg {
+		cfg, err := auto.LoadConfig(auto.DefaultPath())
+		if err == nil {
+			cfg = cfg.TogglePin(g)
+			err = auto.SaveConfig(auto.DefaultPath(), cfg)
+		}
+		if err != nil {
+			return settingsMsg{err: err}
+		}
+		if cfg.Pinned(g) {
+			return settingsMsg{text: "pinned " + g.Name + ": auto mode never freezes it"}
+		}
+		return settingsMsg{text: "unpinned " + g.Name}
 	}
 }
 
@@ -124,9 +178,10 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			m.err = msg.err // keep the last good list; the next tick retries
 			return m, nil
 		}
-		m.err = nil
+		m.err = msg.autoErr
 		cur, _ := m.current()
 		m.groups, m.status = msg.groups, msg.status
+		m.auto, m.lastAuto = msg.auto, msg.lastAuto
 		m.follow(cur.Key)
 		present := make(map[string]bool, len(m.groups))
 		for _, g := range m.groups {
@@ -149,6 +204,13 @@ func (m model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		m.frame++
 		return m, spinCmd(m.opGen)
+	case settingsMsg:
+		m.busy = false
+		m.msg = msg.text
+		if msg.err != nil {
+			m.msg = "error: " + msg.err.Error()
+		}
+		return m, m.refreshCmd()
 	case opDoneMsg:
 		m.busy = false
 		m.selected = map[string]bool{}
@@ -168,11 +230,14 @@ func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.filtering {
 		return m.handlePromptKey(k), nil
 	}
-	if s == "q" {
+	if s == "q" && !m.editing {
 		return m, tea.Quit
 	}
 	if m.busy {
 		return m, nil
+	}
+	if m.settings {
+		return m.settingsKey(k)
 	}
 	if m.confirm != nil {
 		p := m.confirm
@@ -238,6 +303,14 @@ func (m model) handleKey(k tea.KeyMsg) (tea.Model, tea.Cmd) {
 			}
 		}
 		return m.startThaw(targets)
+	case "m":
+		return m.startModeSwitch()
+	case "s":
+		m.settings, m.msg = true, ""
+	case "p":
+		if g, ok := m.current(); ok {
+			return m, pinCmd(g)
+		}
 	case "r":
 		return m, m.refreshCmd()
 	}

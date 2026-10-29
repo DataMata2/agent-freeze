@@ -314,3 +314,41 @@ func TestConcurrentUpdatesCrossProcess(t *testing.T) {
 		}
 	}
 }
+
+func TestEntryBy(t *testing.T) {
+	s := newStore(t)
+	if err := s.Update(func(m map[string]Entry) error {
+		m["auto"] = Entry{Key: "auto", By: "auto"}
+		m["manual"] = Entry{Key: "manual"}
+		return nil
+	}); err != nil {
+		t.Fatalf("Update: %v", err)
+	}
+	m, err := s.Load()
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if m["auto"].By != "auto" || m["manual"].By != "" {
+		t.Errorf("By = %q, %q", m["auto"].By, m["manual"].By)
+	}
+	raw, err := os.ReadFile(s.Path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if n := strings.Count(string(raw), `"by"`); n != 1 {
+		t.Errorf(`"by" appears %d times, want 1 (omitempty):%s`, n, raw)
+	}
+
+	// A state file written before By existed loads with By empty.
+	old := filepath.Join(t.TempDir(), "state.json")
+	if err := os.WriteFile(old, []byte(`{"version":1,"groups":{"k":{"key":"k","cgroup":"/c","frozen_at":"2026-10-21T12:00:00Z"}}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	m, err = Store{Path: old}.Load()
+	if err != nil {
+		t.Fatalf("Load old: %v", err)
+	}
+	if e, ok := m["k"]; !ok || e.By != "" || e.Cgroup != "/c" {
+		t.Errorf("old entry = %#v", m["k"])
+	}
+}

@@ -119,6 +119,14 @@ func TestExportedRejectNonTTYPaths(t *testing.T) {
 	}
 }
 
+func TestCheckTTYErrorsNameNoOperation(t *testing.T) {
+	// CheckTTY guards reads as well as writes, so its errors say neither.
+	want := `"/tmp/x" is not a terminal path`
+	if err := CheckTTY("/tmp/x"); err == nil || err.Error() != want {
+		t.Errorf("CheckTTY = %v, want %q", err, want)
+	}
+}
+
 func TestWriteMissingPathIsError(t *testing.T) {
 	if err := clearFrozen(filepath.Join(t.TempDir(), "nope"), "x"); err == nil {
 		t.Error("write to missing path = nil, want error")

@@ -270,3 +270,30 @@ func TestNewBannerFromEnv(t *testing.T) {
 		t.Error("Banner = true with AFZ_NO_BANNER=1")
 	}
 }
+
+func TestListTTY(t *testing.T) {
+	bannerCalls(t, nil, nil)
+	t.Run("plain root", func(t *testing.T) {
+		e := newEnv(t)
+		linkTTY(t, e.proc, 102, "/dev/pts/4")
+		if got := e.group(t, 102).TTY; got != "/dev/pts/4" {
+			t.Errorf("TTY = %q, want /dev/pts/4", got)
+		}
+	})
+	t.Run("pty host uses lowest claude child", func(t *testing.T) {
+		e := newEnv(t, ptyHostProcs()...)
+		linkTTY(t, e.proc, 201, "/dev/pts/1")
+		linkTTY(t, e.proc, 202, "/dev/pts/2")
+		linkTTY(t, e.proc, 203, "/dev/pts/3")
+		linkTTY(t, e.proc, 205, "/dev/pts/5")
+		if got := e.group(t, 201).TTY; got != "/dev/pts/3" {
+			t.Errorf("TTY = %q, want /dev/pts/3", got)
+		}
+	})
+	t.Run("no tty", func(t *testing.T) {
+		e := newEnv(t)
+		if got := e.group(t, 102).TTY; got != "" {
+			t.Errorf("TTY = %q, want empty", got)
+		}
+	})
+}

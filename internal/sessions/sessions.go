@@ -21,7 +21,12 @@ type Info struct {
 	Kind       string `json:"kind"`
 	Name       string `json:"name"`
 	NameSource string `json:"nameSource"` // "user" or "derived"
-	Status     string `json:"status"`     // "busy", "idle" or "shell"
+	// Status is "busy" (a turn runs), "idle" (nothing runs), "shell" (no turn,
+	// but a background Bash or Monitor task still runs) or "waiting" (blocked
+	// on the user, e.g. a permission prompt).
+	Status string `json:"status"`
+	// StatusUpdatedAt is when Status last changed, in Unix ms; 0 if absent.
+	StatusUpdatedAt int64 `json:"statusUpdatedAt"`
 }
 
 // DefaultDir returns $CLAUDE_CONFIG_DIR/sessions if CLAUDE_CONFIG_DIR is set,

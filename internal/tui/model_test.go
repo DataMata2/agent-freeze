@@ -94,7 +94,14 @@ func TestMain(m *testing.M) {
 	tick = func(_ time.Duration, fn func(time.Time) tea.Msg) tea.Cmd {
 		return func() tea.Msg { return fn(time.Time{}) }
 	}
-	os.Exit(m.Run())
+	dir, err := os.MkdirTemp("", "afz-tui-")
+	if err != nil {
+		panic(err)
+	}
+	os.Setenv("XDG_STATE_HOME", dir)
+	code := m.Run()
+	os.RemoveAll(dir)
+	os.Exit(code)
 }
 
 // feed delivers msg to m and drains every resulting command synchronously.
@@ -142,6 +149,16 @@ func key(s string) tea.KeyMsg {
 		return tea.KeyMsg{Type: tea.KeySpace, Runes: []rune{' '}}
 	case "ctrl+c":
 		return tea.KeyMsg{Type: tea.KeyCtrlC}
+	case "left":
+		return tea.KeyMsg{Type: tea.KeyLeft}
+	case "right":
+		return tea.KeyMsg{Type: tea.KeyRight}
+	case "enter":
+		return tea.KeyMsg{Type: tea.KeyEnter}
+	case "esc":
+		return tea.KeyMsg{Type: tea.KeyEsc}
+	case "backspace":
+		return tea.KeyMsg{Type: tea.KeyBackspace}
 	}
 	return tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune(s)}
 }
@@ -467,13 +484,17 @@ func TestViewContainsRows(t *testing.T) {
 func TestViewShowsStatus(t *testing.T) {
 	api := newFake()
 	api.groups[0].Status = "busy"
+	api.groups[1].Status = "waiting"
 	api.groups[3].Status = ""
 	m := loaded(t, api)
 	lines := strings.Split(plainView(m), "\n")
-	var alpha, delta string
+	var alpha, beta, delta string
 	for _, l := range lines {
 		if strings.Contains(l, "alpha") {
 			alpha = l
+		}
+		if strings.Contains(l, "beta") {
+			beta = l
 		}
 		if strings.Contains(l, "delta") {
 			delta = l
@@ -481,6 +502,9 @@ func TestViewShowsStatus(t *testing.T) {
 	}
 	if !strings.Contains(alpha, "busy") {
 		t.Errorf("alpha row lacks busy status: %q", alpha)
+	}
+	if !strings.Contains(beta, " waiting ") {
+		t.Errorf("beta row lacks the whole waiting status: %q", beta)
 	}
 	if !strings.Contains(delta, " - ") {
 		t.Errorf("delta row lacks '-' status: %q", delta)
@@ -547,5 +571,21 @@ func TestSpinnerIgnoresStaleTick(t *testing.T) {
 	}
 	if !strings.Contains(plainView(nm.(model)), "working…") {
 		t.Error("busy view lacks spinner line")
+	}
+}
+
+func TestHelpWrapsInsteadOfCuttingKeysOff(t *testing.T) {
+	m := loaded(t, newFake())
+	m = feed(t, m, tea.WindowSizeMsg{Width: 80, Height: 40})
+	v := plainView(m)
+	for _, want := range []string{"s settings", "q quit", "m auto/manual"} {
+		if !strings.Contains(v, want) {
+			t.Errorf("help at width 80 lacks %q:\n%s", want, v)
+		}
+	}
+	for i, line := range strings.Split(v, "\n") {
+		if n := len([]rune(line)); n > 80 {
+			t.Errorf("line %d is %d wide, > 80: %q", i, n, line)
+		}
 	}
 }
