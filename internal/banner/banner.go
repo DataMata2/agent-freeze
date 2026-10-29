@@ -58,9 +58,9 @@ var (
 	rawWrite = syscall.Write
 )
 
-// isTTYPath reports whether p is a clean /dev/pts/N or /dev/ttyX path.
+// IsTTYPath reports whether p is a clean /dev/pts/N or /dev/ttyX path.
 // "/dev/tty" itself is excluded: it means the caller's own terminal.
-func isTTYPath(p string) bool {
+func IsTTYPath(p string) bool {
 	return (strings.HasPrefix(p, ptsPrefix) && len(p) > len(ptsPrefix) ||
 		strings.HasPrefix(p, ttyPrefix) && len(p) > len(ttyPrefix)) && filepath.Clean(p) == p
 }
@@ -68,7 +68,7 @@ func isTTYPath(p string) bool {
 // checkTTY refuses any path that is not a clean /dev/pts/* or /dev/tty*
 // path naming a character device.
 func checkTTY(tty string) error {
-	if !isTTYPath(tty) {
+	if !IsTTYPath(tty) {
 		return fmt.Errorf("refusing to write to %q: not a terminal path", tty)
 	}
 	var st syscall.Stat_t

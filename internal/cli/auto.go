@@ -129,8 +129,9 @@ func runAuto(api auto.API) error {
 				fmt.Fprintf(os.Stderr, "%s auto: log: %s\n", prog.Name, err)
 			}
 		},
+		PendingInput: auto.PendingInput,
 	}
-	return r.Run(ctx, auto.DefaultPath(), auto.WatchFocus(ctx))
+	return r.Run(ctx, auto.DefaultPath(), auto.WatchFocus(ctx), auto.WatchInput(ctx))
 }
 
 func (o *output) autoStatus() error {
@@ -156,7 +157,7 @@ func (o *output) autoStatus() error {
 	if running {
 		service = "running"
 	}
-	row := func(name, value string) { fmt.Fprintf(o.stdout, "%-10s%s\n", name, value) }
+	row := func(name, value string) { fmt.Fprintf(o.stdout, "%-12s%s\n", name, value) }
 	row("mode", cfg.Mode)
 	row("service", service)
 	for _, s := range auto.Settings {

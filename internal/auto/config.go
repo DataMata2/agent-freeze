@@ -28,13 +28,14 @@ type Config struct {
 	RetryMinutes    float64  `json:"retry_minutes"`
 	Notify          bool     `json:"notify"`
 	TabThaw         bool     `json:"tab_thaw"`
+	InputThaw       bool     `json:"input_thaw"`
 	Pins            []string `json:"pins,omitempty"` // PinID of groups auto mode never freezes
 }
 
 // Defaults returns the settings used when the file is missing.
 func Defaults() Config {
 	return Config{Mode: "manual", IdleMinutes: 15, IntervalSeconds: 30, MemoryLevel: "warn", CPULoad: 1,
-		CPUUsePercent: 10, AwayMinutes: 5, RetryMinutes: 30, Notify: true, TabThaw: true}
+		CPUUsePercent: 10, AwayMinutes: 5, RetryMinutes: 30, Notify: true, TabThaw: true, InputThaw: true}
 }
 
 // DefaultPath returns auto.json next to the freeze state file.

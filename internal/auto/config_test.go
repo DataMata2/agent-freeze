@@ -16,7 +16,7 @@ func TestLoadConfigMissingFileGivesDefaults(t *testing.T) {
 	if err != nil || !reflect.DeepEqual(got, Defaults()) {
 		t.Fatalf("LoadConfig = %+v, %v; want %+v", got, err, Defaults())
 	}
-	if d := Defaults(); d.Mode != "manual" || d.IdleMinutes != 15 || d.IntervalSeconds != 30 || !d.Notify || !d.TabThaw {
+	if d := Defaults(); d.Mode != "manual" || d.IdleMinutes != 15 || d.IntervalSeconds != 30 || !d.Notify || !d.TabThaw || !d.InputThaw {
 		t.Errorf("Defaults = %+v", d)
 	}
 }

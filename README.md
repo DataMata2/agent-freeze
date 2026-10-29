@@ -191,6 +191,7 @@ check.
 | `retry` | `30` | minutes before a session that failed to freeze is tried again |
 | `notify` | `on` | a notification on each auto freeze |
 | `tab-thaw` | `on` | selecting a frozen session's Terminal tab thaws it (macOS) |
+| `input-thaw` | `on` | typing into a frozen session's terminal thaws it (Linux) |
 
 `auto off` does not thaw what auto mode froze; thaw those with `u` or
 `afz thaw`.
@@ -218,6 +219,15 @@ session must also be unused for the away time. Inside tmux, or in
 another terminal app, the selected tab cannot be matched to a session: pin
 the sessions you are working in, or raise the idle time. Each auto freeze
 shows a notification (`notify-send` on Linux).
+
+On Linux, auto mode watches the terminals of the sessions it froze: as soon
+as you type into one, that session thaws and reads what you typed (turn this
+off with `afz auto set input-thaw off`). It only looks at whether unread input
+is waiting and never reads it, so nothing you type is lost. Anything the
+terminal sends counts as typing: pastes, mouse events, and the focus reports
+some terminals send when you switch to their window. A session with typed
+input it has not read yet is never frozen. Only sessions auto mode froze thaw
+this way; a manual freeze stays until `u` or `afz thaw`.
 
 The service is a launchd agent on macOS
 (`~/Library/LaunchAgents/io.github.datamata2.agent-freeze.auto.plist`) and a

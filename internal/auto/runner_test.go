@@ -95,6 +95,8 @@ func newRunner(api *fakeAPI, r pressure.Reading, rec *recorder) *Runner {
 		Notify: func(title, body string) { rec.notices = append(rec.notices, body) },
 		Now:    func() time.Time { return now },
 		Log:    func(e Event) { rec.events = append(rec.events, e) },
+
+		PendingInput: func(string) int { return 0 },
 	}
 }
 
@@ -242,7 +244,7 @@ func runInBackground(t *testing.T, run *Runner, path string) (chan<- string, fun
 	ctx, cancel := context.WithCancel(context.Background())
 	tabs := make(chan string)
 	done := make(chan error, 1)
-	go func() { done <- run.Run(ctx, path, tabs) }()
+	go func() { done <- run.Run(ctx, path, tabs, InputWatch{}) }()
 	return tabs, func() {
 		cancel()
 		if err := <-done; err != nil {
@@ -511,5 +513,144 @@ func TestCheckNotifiesASkippedFreeze(t *testing.T) {
 	quiet := &recorder{}
 	if err := newRunner(api, memWarn, quiet).Check(cfg, noFocus()); err != nil || len(quiet.notices) != 0 {
 		t.Fatalf("err=%v notices %q with notifications off", err, quiet.notices)
+	}
+}
+
+func TestCheckSkipsAGroupWithPendingInput(t *testing.T) {
+	api := &fakeAPI{groups: []freezer.GroupView{idleGroup("old", time.Hour, gib)}}
+	rec := &recorder{}
+	run := newRunner(api, memWarn, rec)
+	var asked []string
+	run.PendingInput = func(tty string) int { asked = append(asked, tty); return 1 }
+	if err := run.Check(autoCfg(), noFocus()); err != nil {
+		t.Fatal(err)
+	}
+	if len(api.froze) != 0 || len(rec.events) != 0 || len(rec.notices) != 0 {
+		t.Fatalf("froze %v, events %+v, notices %v; want nothing while input is pending", api.froze, rec.events, rec.notices)
+	}
+	if !slices.Equal(asked, []string{"/dev/old"}) {
+		t.Fatalf("asked %v, want the group's tty", asked)
+	}
+	run.PendingInput = func(string) int { return 0 }
+	if err := run.Check(autoCfg(), noFocus()); err != nil || !slices.Equal(api.froze, []string{"old"}) {
+		t.Fatalf("err=%v froze=%v, want the freeze once the input is read", err, api.froze)
+	}
+}
+
+func TestThawInputThawsOnlyAutoFreezesOnThatTTY(t *testing.T) {
+	frozen := idleGroup("frozen", time.Hour, gib)
+	frozen.State, frozen.FrozenBy = "frozen", "auto"
+	manual := idleGroup("manual", time.Hour, gib)
+	manual.State, manual.TTY = "frozen", frozen.TTY
+	other := idleGroup("other", time.Hour, gib)
+	other.State, other.FrozenBy = "partial", "auto"
+	api := &fakeAPI{groups: []freezer.GroupView{frozen, manual, other}}
+	rec := &recorder{}
+	if err := newRunner(api, calm, rec).ThawInput(autoCfg(), "/dev/frozen"); err != nil {
+		t.Fatal(err)
+	}
+	if !slices.Equal(api.thawed, []string{"frozen"}) || len(rec.events) != 1 ||
+		rec.events[0].Action != "thawed" || rec.events[0].Reason != "input" {
+		t.Fatalf("thawed %v, events %+v", api.thawed, rec.events)
+	}
+	off := autoCfg()
+	off.InputThaw = false
+	for _, cfg := range []Config{off, Defaults()} {
+		if err := newRunner(api, calm, rec).ThawInput(cfg, "/dev/other"); err != nil || len(api.thawed) != 1 {
+			t.Errorf("ThawInput with %+v thawed %v", cfg, api.thawed)
+		}
+	}
+}
+
+// fakeInput is the Run side of an input watcher: what Run offered, and events to send it.
+func fakeInput() (InputWatch, chan string) {
+	ev := make(chan string)
+	return InputWatch{TTYs: make(chan []string, 1), Events: ev}, ev
+}
+
+func nextSet(t *testing.T, in InputWatch) []string {
+	t.Helper()
+	select {
+	case set := <-in.TTYs:
+		return set
+	case <-time.After(5 * time.Second):
+		t.Fatal("Run offered no tty set")
+		return nil
+	}
+}
+
+func TestRunOffersAutoFrozenTTYsAndThawsOnInput(t *testing.T) {
+	frozen := idleGroup("frozen", time.Hour, gib)
+	frozen.State, frozen.FrozenBy = "frozen", "auto"
+	sibling := idleGroup("sibling", time.Hour, gib)
+	sibling.State, sibling.FrozenBy, sibling.TTY = "partial", "auto", frozen.TTY
+	other := idleGroup("other", time.Hour, gib)
+	other.State, other.FrozenBy = "frozen", "auto"
+	manual := idleGroup("manual", time.Hour, gib)
+	manual.State = "frozen"
+	running := idleGroup("running", time.Hour, gib)
+	notty := idleGroup("notty", time.Hour, gib)
+	notty.State, notty.FrozenBy, notty.TTY = "frozen", "auto", ""
+	api := &fakeAPI{groups: []freezer.GroupView{frozen, sibling, other, manual, running, notty}}
+	path := filepath.Join(t.TempDir(), "auto.json")
+	if err := SaveConfig(path, autoCfg()); err != nil {
+		t.Fatal(err)
+	}
+	run := newRunner(api, calm, &recorder{})
+	var mu sync.Mutex
+	var events []Event
+	run.Log = func(e Event) { mu.Lock(); events = append(events, e); mu.Unlock() }
+	in, ev := fakeInput()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- run.Run(ctx, path, nil, in) }()
+
+	if set := nextSet(t, in); !slices.Equal(set, []string{"/dev/frozen", "/dev/other"}) {
+		t.Fatalf("after a check Run offered %v", set)
+	}
+	ev <- "/dev/frozen"
+	// The thawed tty leaves the set: a failed thaw is not retried until the next check.
+	if set := nextSet(t, in); !slices.Equal(set, []string{"/dev/other"}) {
+		t.Fatalf("after a thaw Run offered %v", set)
+	}
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if got := api.thawedNames(); !slices.Equal(got, []string{"frozen", "sibling"}) {
+		t.Fatalf("thawed %v", got)
+	}
+	mu.Lock()
+	defer mu.Unlock()
+	if len(events) != 2 || events[0].Reason != "input" {
+		t.Fatalf("events %+v", events)
+	}
+}
+
+func TestRunOffersNothingWithInputThawOff(t *testing.T) {
+	frozen := idleGroup("frozen", time.Hour, gib)
+	frozen.State, frozen.FrozenBy = "frozen", "auto"
+	api := &fakeAPI{groups: []freezer.GroupView{frozen}}
+	path := filepath.Join(t.TempDir(), "auto.json")
+	cfg := autoCfg()
+	cfg.InputThaw = false
+	if err := SaveConfig(path, cfg); err != nil {
+		t.Fatal(err)
+	}
+	in, ev := fakeInput()
+	ctx, cancel := context.WithCancel(context.Background())
+	done := make(chan error, 1)
+	go func() { done <- newRunner(api, calm, &recorder{}).Run(ctx, path, nil, in) }()
+	if set := nextSet(t, in); len(set) != 0 {
+		t.Fatalf("Run offered %v with input-thaw off", set)
+	}
+	ev <- "/dev/frozen"
+	nextSet(t, in)
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatal(err)
+	}
+	if got := api.thawedNames(); len(got) != 0 {
+		t.Fatalf("thawed %v with input-thaw off", got)
 	}
 }

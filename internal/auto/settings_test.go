@@ -23,7 +23,7 @@ func TestEveryKnobIsASetting(t *testing.T) {
 			t.Errorf("%s has no label or help", s.Name)
 		}
 	}
-	want := []string{"idle", "interval", "memory", "cpu-load", "cpu-use", "away", "retry", "notify", "tab-thaw"}
+	want := []string{"idle", "interval", "memory", "cpu-load", "cpu-use", "away", "retry", "notify", "tab-thaw", "input-thaw"}
 	if !slices.Equal(names, want) {
 		t.Fatalf("settings = %v, want %v", names, want)
 	}
@@ -35,7 +35,7 @@ func TestEveryKnobIsASetting(t *testing.T) {
 func TestDefaultValues(t *testing.T) {
 	want := map[string]string{
 		"idle": "15", "interval": "30", "memory": "warn", "cpu-load": "1", "cpu-use": "10",
-		"away": "5", "retry": "30", "notify": "on", "tab-thaw": "on",
+		"away": "5", "retry": "30", "notify": "on", "tab-thaw": "on", "input-thaw": "on",
 	}
 	for name, v := range want {
 		if got := setting(t, name).Value(Defaults()); got != v {
@@ -47,7 +47,7 @@ func TestDefaultValues(t *testing.T) {
 func TestSetReturnsAChangedCopy(t *testing.T) {
 	c := Defaults()
 	cases := map[string]string{"idle": "0", "interval": "120", "memory": "critical", "cpu-load": "0",
-		"cpu-use": "50", "away": "2.5", "retry": "60", "notify": "off", "tab-thaw": "off"}
+		"cpu-use": "50", "away": "2.5", "retry": "60", "notify": "off", "tab-thaw": "off", "input-thaw": "off"}
 	for name, v := range cases {
 		got, err := setting(t, name).Set(c, v)
 		if err != nil {

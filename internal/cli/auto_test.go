@@ -127,7 +127,7 @@ func TestAutoStatusShowsSettingsPinsAndTheLastEvent(t *testing.T) {
 	_, out, _ := run(newFake(t), "auto")
 	for _, want := range [][2]string{{"mode", "auto"}, {"service", "running"}, {"idle", "15 min"}, {"interval", "30 s"},
 		{"memory", "warn"}, {"cpu-load", "1 per core"}, {"cpu-use", "10 %"}, {"away", "5 min"}, {"retry", "30 min"},
-		{"notify", "on"}, {"tab-thaw", "on"}, {"pinned", "1"},
+		{"notify", "on"}, {"tab-thaw", "on"}, {"input-thaw", "on"}, {"pinned", "1"},
 		{"last", "Oct 27 15:04 froze api (memory pressure warn, 1.0G)"}} {
 		if !row(out, want[0], want[1]) {
 			t.Errorf("status lacks %q:\n%s", want, out)

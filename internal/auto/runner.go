@@ -38,6 +38,12 @@ type API interface {
 
 var _ API = (*freezer.Freezer)(nil)
 
+// InputWatch links Run to a watcher of typing in terminals; the zero value watches nothing.
+type InputWatch struct {
+	TTYs   chan []string // Run offers the ttys to watch; the watcher takes the newest
+	Events <-chan string // a watched tty with unread input
+}
+
 // Runner performs auto-mode checks; every exported field is required.
 type Runner struct {
 	API    API
@@ -46,6 +52,8 @@ type Runner struct {
 	Notify func(title, body string)
 	Now    func() time.Time
 	Log    func(Event)
+	// PendingInput returns how many typed bytes wait unread on tty; 0 if unknown.
+	PendingInput func(tty string) int
 
 	backoff map[string]time.Time // group key -> when its freeze last failed or was skipped
 	frozeAt time.Time            // when auto mode last froze a group
@@ -90,6 +98,10 @@ func (r *Runner) Check(cfg Config, focus Focus) error {
 	// The list is a moment old: the session may have started a turn since.
 	if g, ok, err = r.recheck(g.Key, cfg, focus, now); err != nil || !ok {
 		return err
+	}
+	// Typed input the session has not read yet: the user is back.
+	if g.TTY != "" && r.PendingInput(g.TTY) > 0 {
+		return nil
 	}
 	st, err := r.API.Status()
 	if err != nil {
@@ -164,6 +176,18 @@ func (r *Runner) ThawFocused(cfg Config, tty string) error {
 	if cfg.Mode != "auto" || !cfg.TabThaw || tty == "" || tty == FocusUnknown {
 		return nil
 	}
+	return r.thawTTY(tty, "tab selected")
+}
+
+// ThawInput thaws the groups auto mode froze whose terminal is tty, in auto mode with input thaw on.
+func (r *Runner) ThawInput(cfg Config, tty string) error {
+	if cfg.Mode != "auto" || !cfg.InputThaw || tty == "" {
+		return nil
+	}
+	return r.thawTTY(tty, "input")
+}
+
+func (r *Runner) thawTTY(tty, reason string) error {
 	groups, err := r.API.List()
 	if err != nil {
 		return err
@@ -172,7 +196,7 @@ func (r *Runner) ThawFocused(cfg Config, tty string) error {
 		if g.TTY != tty || !autoFrozen(g) {
 			continue
 		}
-		ev := Event{Time: r.Now(), Action: "thawed", Name: g.Name, Reason: "tab selected"}
+		ev := Event{Time: r.Now(), Action: "thawed", Name: g.Name, Reason: reason}
 		if res := r.API.Thaw(g); !res.OK {
 			ev.Action, ev.Error = "failed", res.Error
 		}
@@ -181,8 +205,40 @@ func (r *Runner) ThawFocused(cfg Config, tty string) error {
 	return nil
 }
 
-// Run checks every interval and thaws on each tab change until ctx ends, re-reading the settings each time.
-func (r *Runner) Run(ctx context.Context, cfgPath string, tabs <-chan string) error {
+// offerTTYs gives the input watcher the ttys of the groups auto mode froze, except skip,
+// or none when input thaw is off. The watcher takes only the newest set.
+func (r *Runner) offerTTYs(cfg Config, in InputWatch, skip string) error {
+	if in.TTYs == nil {
+		return nil
+	}
+	var ttys []string
+	if cfg.Mode == "auto" && cfg.InputThaw {
+		groups, err := r.API.List()
+		if err != nil {
+			return err
+		}
+		for _, g := range groups {
+			if autoFrozen(g) && g.TTY != "" && g.TTY != skip && !slices.Contains(ttys, g.TTY) {
+				ttys = append(ttys, g.TTY)
+			}
+		}
+	}
+	for {
+		select {
+		case in.TTYs <- ttys:
+			return nil
+		default:
+		}
+		select { // drop the set the watcher has not taken yet
+		case <-in.TTYs:
+		default:
+		}
+	}
+}
+
+// Run checks every interval and thaws on each tab change and each input event until ctx ends,
+// re-reading the settings each time.
+func (r *Runner) Run(ctx context.Context, cfgPath string, tabs <-chan string, input InputWatch) error {
 	focus := Focus{TTY: FocusUnknown, LeftAt: map[string]time.Time{}}
 	lastErr := ""
 	report := func(err error) {
@@ -214,10 +270,27 @@ func (r *Runner) Run(ctx context.Context, cfgPath string, tabs <-chan string) er
 				err = r.ThawFocused(cfg, tty)
 			}
 			report(err)
+		case tty, ok := <-input.Events:
+			if !ok {
+				input.Events = nil
+				continue
+			}
+			cfg, err := LoadConfig(cfgPath)
+			if err == nil {
+				err = r.ThawInput(cfg, tty)
+			}
+			if err == nil {
+				// Without tty: a failed thaw is tried again after the next check, not in a loop.
+				err = r.offerTTYs(cfg, input, tty)
+			}
+			report(err)
 		case <-timer.C:
 			cfg, err := LoadConfig(cfgPath)
 			if err == nil {
 				err = r.Check(cfg, focus)
+			}
+			if err == nil {
+				err = r.offerTTYs(cfg, input, "")
 			}
 			report(err)
 			timer.Reset(time.Duration(cfg.IntervalSeconds * float64(time.Second)))

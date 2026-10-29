@@ -42,6 +42,8 @@ var Settings = []Setting{
 		Choices: onOff, flag: func(c *Config) *bool { return &c.Notify }},
 	{Name: "tab-thaw", Label: "thaw on tab", Help: "selecting a frozen session's Terminal tab thaws it (macOS)",
 		Choices: onOff, flag: func(c *Config) *bool { return &c.TabThaw }},
+	{Name: "input-thaw", Label: "thaw on typing", Help: "typing into a frozen session's terminal thaws it (Linux)",
+		Choices: onOff, flag: func(c *Config) *bool { return &c.InputThaw }},
 }
 
 // Lookup returns the setting called name.
