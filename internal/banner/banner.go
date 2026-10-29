@@ -69,14 +69,14 @@ func IsTTYPath(p string) bool {
 // path naming a character device.
 func CheckTTY(tty string) error {
 	if !IsTTYPath(tty) {
-		return fmt.Errorf("refusing to write to %q: not a terminal path", tty)
+		return fmt.Errorf("%q is not a terminal path", tty)
 	}
 	var st syscall.Stat_t
 	if err := syscall.Stat(tty, &st); err != nil {
 		return &os.PathError{Op: "stat", Path: tty, Err: err}
 	}
 	if st.Mode&syscall.S_IFMT != syscall.S_IFCHR {
-		return fmt.Errorf("refusing to write to %q: not a character device", tty)
+		return fmt.Errorf("%q is not a character device", tty)
 	}
 	return nil
 }
