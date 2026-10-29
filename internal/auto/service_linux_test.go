@@ -120,7 +120,7 @@ func fakeNotifySend(t *testing.T, path string) (*int, *strings.Builder) {
 		look: func(file string) (string, error) {
 			looks++
 			if file != "notify-send" || path == "" {
-				return "", errors.New("not found")
+				return "", errors.New(`exec: "notify-send": executable file not found in $PATH`)
 			}
 			return path, nil
 		},

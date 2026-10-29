@@ -83,7 +83,7 @@ func Notify(title, body string) {
 	n.once.Do(func() {
 		path, err := n.look("notify-send")
 		if err != nil {
-			fmt.Fprintf(n.warn, "%s auto: no notifications: notify-send not found: %s\n", prog.Name, err)
+			fmt.Fprintf(n.warn, "%s auto: no notifications: %s\n", prog.Name, err)
 			return
 		}
 		n.path = path
